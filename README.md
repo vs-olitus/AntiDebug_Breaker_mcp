@@ -81,7 +81,7 @@ AntiDebug Breaker MCP 是一款专为前端 JavaScript 逆向工程和渗透测�
 
 针对 Vue.js 框架的专属功能，快速获取和分析路由信息。
 
-![剪贴板 2026-01-26 下午 10.02.20](/Users/vsolitus/Downloads/AntiDebug_Breaker_mcp-4.0.0/image/README/剪贴板 2026-01-26 下午 10.02.20.png)
+![剪贴板 2026-01-26 下午 10.01.16](/Users/vsolitus/Downloads/AntiDebug_Breaker_mcp-4.0.0/image/README/剪贴板 2026-01-26 下午 10.01.16.png)
 
 | 脚本名称 | 功能描述 |
 |---------|---------|
@@ -178,7 +178,6 @@ npm start
 <table>
 <tr>
 <td width="50%">
-
 **步骤 1：打开 MCP 配置**
 
 1. 打开 Cursor 设置
