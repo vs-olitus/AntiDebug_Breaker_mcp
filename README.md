@@ -252,7 +252,7 @@ npm start
 </td>
 <td width="50%">
 
-![剪贴板 2026-01-26 下午 10.04.51](/Users/vsolitus/Downloads/AntiDebug_Breaker_mcp-4.0.0/image/README/剪贴板 2026-01-26 下午 10.04.51.png)
+![剪贴板 2026-01-27 下午 3.43.32](https://s1.galgame.fun/imgb/u55/20260127_69786cafad834.png)
 
 </td>
 </tr>
