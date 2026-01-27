@@ -289,7 +289,11 @@ npm start
 </details>
 
 ### 💡 常用提示词
-
+前置内容：使用AntiDebug Breaker_mcp的mcp
+如
+```
+使用AntiDebug Breaker_mcp的mcp帮我分析当前页面，检测反调试机制、前端框架、加密方式和认证机制
+```
 <details>
 <summary>🔍 <b>一键分析页面</b></summary>
 
