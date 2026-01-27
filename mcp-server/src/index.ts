@@ -109,6 +109,13 @@ wss.on("connection", (ws) => {
   ws.on("message", (data) => {
     try {
       const message = JSON.parse(data.toString());
+      
+      // 处理心跳消息
+      if (message.type === 'PING') {
+        ws.send(JSON.stringify({ type: 'PONG', timestamp: Date.now() }));
+        return;
+      }
+      
       handleBrowserMessage(message);
     } catch (e) {
       console.error("[MCP] 解析消息失败:", e);
@@ -123,6 +130,8 @@ wss.on("connection", (ws) => {
 
   ws.on("error", (error) => {
     console.error("[MCP] WebSocket错误:", error);
+    browserClient = null;
+    browserState.connected = false;
   });
 });
 
@@ -2286,6 +2295,302 @@ server.tool(
     } catch (error: any) {
       return {
         content: [{ type: "text", text: `获取告警失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// ============== 请求头管理功能 ==============
+
+// 57. 获取请求头配置
+server.tool(
+  "get_headers_config",
+  "获取当前所有请求头组和请求头的配置信息",
+  {},
+  async () => {
+    try {
+      const result = await sendToBrowser("GET_HEADERS_CONFIG", {});
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(result, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `获取请求头配置失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// 58. 创建请求头组
+server.tool(
+  "create_header_group",
+  "创建一个新的请求头组",
+  {
+    name: z.string().describe("请求头组名称"),
+    headers: z.array(z.object({
+      name: z.string().describe("请求头名称"),
+      value: z.string().describe("请求头值"),
+      enabled: z.boolean().optional().describe("是否启用，默认true")
+    })).optional().describe("初始请求头列表")
+  },
+  async ({ name, headers = [] }) => {
+    try {
+      const result = await sendToBrowser("CREATE_HEADER_GROUP", { name, headers });
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(result, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `创建请求头组失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// 59. 删除请求头组
+server.tool(
+  "delete_header_group",
+  "删除指定的请求头组",
+  {
+    groupId: z.string().describe("请求头组ID")
+  },
+  async ({ groupId }) => {
+    try {
+      const result = await sendToBrowser("DELETE_HEADER_GROUP", { groupId });
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(result, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `删除请求头组失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// 60. 切换当前请求头组
+server.tool(
+  "switch_header_group",
+  "切换到指定的请求头组（启用该组的请求头），传空字符串禁用所有请求头",
+  {
+    groupId: z.string().describe("请求头组ID，传空字符串禁用所有请求头")
+  },
+  async ({ groupId }) => {
+    try {
+      const result = await sendToBrowser("SWITCH_HEADER_GROUP", { groupId: groupId || null });
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(result, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `切换请求头组失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// 61. 添加请求头
+server.tool(
+  "add_header",
+  "向指定请求头组添加一个请求头",
+  {
+    groupId: z.string().describe("请求头组ID"),
+    name: z.string().describe("请求头名称（如 Authorization, X-Token 等）"),
+    value: z.string().describe("请求头值"),
+    enabled: z.boolean().optional().describe("是否启用，默认true")
+  },
+  async ({ groupId, name, value, enabled = true }) => {
+    try {
+      const result = await sendToBrowser("ADD_HEADER", { groupId, name, value, enabled });
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(result, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `添加请求头失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// 62. 更新请求头
+server.tool(
+  "update_header",
+  "更新指定请求头的名称、值或启用状态",
+  {
+    groupId: z.string().describe("请求头组ID"),
+    headerId: z.string().describe("请求头ID"),
+    name: z.string().optional().describe("新的请求头名称"),
+    value: z.string().optional().describe("新的请求头值"),
+    enabled: z.boolean().optional().describe("是否启用")
+  },
+  async ({ groupId, headerId, name, value, enabled }) => {
+    try {
+      const result = await sendToBrowser("UPDATE_HEADER", { groupId, headerId, name, value, enabled });
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(result, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `更新请求头失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// 63. 删除请求头
+server.tool(
+  "delete_header",
+  "从请求头组中删除指定的请求头",
+  {
+    groupId: z.string().describe("请求头组ID"),
+    headerId: z.string().describe("请求头ID")
+  },
+  async ({ groupId, headerId }) => {
+    try {
+      const result = await sendToBrowser("DELETE_HEADER", { groupId, headerId });
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(result, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `删除请求头失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// 64. 切换请求头启用状态
+server.tool(
+  "toggle_header",
+  "启用或禁用指定的请求头",
+  {
+    groupId: z.string().describe("请求头组ID"),
+    headerId: z.string().describe("请求头ID"),
+    enabled: z.boolean().describe("是否启用")
+  },
+  async ({ groupId, headerId, enabled }) => {
+    try {
+      const result = await sendToBrowser("TOGGLE_HEADER", { groupId, headerId, enabled });
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(result, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `切换请求头状态失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// 65. 批量更新请求头
+server.tool(
+  "batch_update_headers",
+  "批量更新请求头组中的所有请求头（替换原有请求头）",
+  {
+    groupId: z.string().describe("请求头组ID"),
+    headers: z.array(z.object({
+      id: z.string().optional().describe("请求头ID（可选，不传则生成新ID）"),
+      name: z.string().describe("请求头名称"),
+      value: z.string().describe("请求头值"),
+      enabled: z.boolean().optional().describe("是否启用，默认true")
+    })).describe("请求头列表")
+  },
+  async ({ groupId, headers }) => {
+    try {
+      const result = await sendToBrowser("BATCH_UPDATE_HEADERS", { groupId, headers });
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(result, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `批量更新请求头失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// 66. 快速设置请求头（创建组+添加请求头+启用）
+server.tool(
+  "quick_set_headers",
+  "快速设置请求头：创建新组并添加请求头，然后立即启用该组",
+  {
+    groupName: z.string().describe("请求头组名称"),
+    headers: z.array(z.object({
+      name: z.string().describe("请求头名称"),
+      value: z.string().describe("请求头值")
+    })).describe("请求头列表")
+  },
+  async ({ groupName, headers }) => {
+    try {
+      // 1. 创建新组
+      const createResult = await sendToBrowser("CREATE_HEADER_GROUP", { 
+        name: groupName, 
+        headers: headers.map(h => ({ ...h, enabled: true }))
+      });
+      
+      if (!createResult.success) {
+        throw new Error("创建请求头组失败");
+      }
+      
+      // 2. 切换到该组
+      const switchResult = await sendToBrowser("SWITCH_HEADER_GROUP", { 
+        groupId: createResult.groupId 
+      });
+      
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            success: true,
+            groupId: createResult.groupId,
+            groupName,
+            headersCount: headers.length,
+            message: `已创建请求头组 "${groupName}" 并启用 ${headers.length} 个请求头`,
+            headers: headers
+          }, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `快速设置请求头失败: ${error.message}` }],
         isError: true
       };
     }

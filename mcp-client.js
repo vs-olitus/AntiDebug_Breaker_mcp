@@ -19,6 +19,10 @@ let reconnectAttempts = 0;
 let mcpEnabled = false;
 let networkRequests = []; // 存储网络请求
 let hookDataBuffer = []; // 存储Hook捕获的数据
+let heartbeatInterval = null; // 心跳定时器
+let lastPongTime = 0; // 最后收到 pong 的时间
+const HEARTBEAT_INTERVAL = 5000; // 心跳间隔 5 秒
+const HEARTBEAT_TIMEOUT = 10000; // 心跳超时 10 秒
 
 // ============== WebSocket 连接管理 ==============
 
@@ -48,6 +52,10 @@ function connectToMCP() {
             console.log('[MCP Client] 已连接到MCP服务器');
             isConnected = true;
             reconnectAttempts = 0;
+            lastPongTime = Date.now();
+            
+            // 启动心跳检测
+            startHeartbeat();
             
             // 发送初始页面信息
             sendCurrentPageInfo();
@@ -56,6 +64,11 @@ function connectToMCP() {
         ws.onmessage = (event) => {
             try {
                 const message = JSON.parse(event.data);
+                // 处理心跳响应
+                if (message.type === 'PONG') {
+                    lastPongTime = Date.now();
+                    return;
+                }
                 handleMCPMessage(message);
             } catch (e) {
                 console.error('[MCP Client] 解析消息失败:', e);
@@ -64,8 +77,7 @@ function connectToMCP() {
 
         ws.onclose = () => {
             console.log('[MCP Client] 与MCP服务器断开连接');
-            isConnected = false;
-            ws = null;
+            handleDisconnect();
             
             // 尝试重连
             if (mcpEnabled && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
@@ -77,14 +89,66 @@ function connectToMCP() {
 
         ws.onerror = (error) => {
             console.error('[MCP Client] WebSocket错误:', error);
+            // 触发断开处理
+            handleDisconnect();
         };
     } catch (e) {
         console.error('[MCP Client] 创建WebSocket失败:', e);
+        handleDisconnect();
+    }
+}
+
+// 处理断开连接
+function handleDisconnect() {
+    isConnected = false;
+    ws = null;
+    stopHeartbeat();
+}
+
+// 启动心跳检测
+function startHeartbeat() {
+    stopHeartbeat(); // 先清除旧的
+    
+    heartbeatInterval = setInterval(() => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            console.log('[MCP Client] 心跳检测：连接已断开');
+            handleDisconnect();
+            return;
+        }
+        
+        // 检查上次 pong 时间，如果超时则认为断开
+        if (Date.now() - lastPongTime > HEARTBEAT_TIMEOUT) {
+            console.log('[MCP Client] 心跳超时，连接可能已断开');
+            handleDisconnect();
+            // 尝试重连
+            if (mcpEnabled && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                reconnectAttempts++;
+                setTimeout(connectToMCP, RECONNECT_INTERVAL);
+            }
+            return;
+        }
+        
+        // 发送心跳
+        try {
+            ws.send(JSON.stringify({ type: 'PING', timestamp: Date.now() }));
+        } catch (e) {
+            console.error('[MCP Client] 发送心跳失败:', e);
+            handleDisconnect();
+        }
+    }, HEARTBEAT_INTERVAL);
+}
+
+// 停止心跳检测
+function stopHeartbeat() {
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
     }
 }
 
 // 断开MCP连接
 function disconnectFromMCP() {
+    stopHeartbeat();
     if (ws) {
         ws.close();
         ws = null;
@@ -349,6 +413,43 @@ async function handleMCPMessage(message) {
                 
             case 'GET_SENSITIVE_ALERTS':
                 result = await getSensitiveAlerts(data);
+                break;
+            
+            // ===== 请求头管理功能 =====
+            case 'GET_HEADERS_CONFIG':
+                result = await getHeadersConfig();
+                break;
+                
+            case 'CREATE_HEADER_GROUP':
+                result = await createHeaderGroup(data);
+                break;
+                
+            case 'DELETE_HEADER_GROUP':
+                result = await deleteHeaderGroup(data);
+                break;
+                
+            case 'SWITCH_HEADER_GROUP':
+                result = await switchHeaderGroup(data);
+                break;
+                
+            case 'ADD_HEADER':
+                result = await addHeader(data);
+                break;
+                
+            case 'UPDATE_HEADER':
+                result = await updateHeader(data);
+                break;
+                
+            case 'DELETE_HEADER':
+                result = await deleteHeader(data);
+                break;
+                
+            case 'TOGGLE_HEADER':
+                result = await toggleHeader(data);
+                break;
+                
+            case 'BATCH_UPDATE_HEADERS':
+                result = await batchUpdateHeaders(data);
                 break;
                 
             default:
@@ -2824,12 +2925,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
     
-    // 获取MCP连接状态
+    // 获取MCP连接状态（实时检查）
     if (message.type === 'GET_MCP_STATUS') {
+        // 实时检查 WebSocket 状态
+        const actuallyConnected = ws && ws.readyState === WebSocket.OPEN && isConnected;
+        
+        // 如果状态不一致，同步更新
+        if (isConnected && !actuallyConnected) {
+            console.log('[MCP Client] 状态不一致，更新为断开');
+            handleDisconnect();
+        }
+        
         sendResponse({ 
-            connected: isConnected, 
+            connected: actuallyConnected, 
             enabled: mcpEnabled,
-            wsUrl: MCP_WS_URL
+            wsUrl: MCP_WS_URL,
+            wsState: ws ? ws.readyState : -1, // 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED
+            lastPongTime: lastPongTime
         });
         return true;
     }
@@ -2849,6 +2961,410 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
         sendCurrentPageInfo();
     }
 });
+
+// ===== 请求头管理功能 =====
+
+// 获取请求头配置
+async function getHeadersConfig() {
+    return new Promise((resolve) => {
+        chrome.storage.local.get(['global_headers_groups', 'global_headers_data', 'current_headers_group'], (result) => {
+            const groups = result.global_headers_groups || [];
+            const data = result.global_headers_data || {};
+            const currentGroupId = result.current_headers_group || null;
+            
+            // 构建完整的配置信息
+            const config = {
+                currentGroupId,
+                groups: groups.map(g => ({
+                    ...g,
+                    headers: data[g.id] || [],
+                    isCurrent: g.id === currentGroupId
+                })),
+                totalGroups: groups.length,
+                totalHeaders: Object.values(data).flat().length
+            };
+            
+            resolve(config);
+        });
+    });
+}
+
+// 创建请求头组
+async function createHeaderGroup({ name, headers = [] }) {
+    return new Promise((resolve, reject) => {
+        if (!name || !name.trim()) {
+            reject(new Error('请求头组名称不能为空'));
+            return;
+        }
+        
+        chrome.storage.local.get(['global_headers_groups', 'global_headers_data'], (result) => {
+            const groups = result.global_headers_groups || [];
+            const data = result.global_headers_data || {};
+            
+            // 生成唯一ID
+            const groupId = `hg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            
+            // 添加新组
+            const newGroup = {
+                id: groupId,
+                name: name.trim(),
+                createdAt: Date.now()
+            };
+            groups.push(newGroup);
+            
+            // 初始化请求头数据
+            data[groupId] = headers.map((h, index) => ({
+                id: `h_${Date.now()}_${index}`,
+                name: h.name || '',
+                value: h.value || '',
+                enabled: h.enabled !== false
+            }));
+            
+            chrome.storage.local.set({
+                global_headers_groups: groups,
+                global_headers_data: data
+            }, () => {
+                resolve({
+                    success: true,
+                    groupId,
+                    group: newGroup,
+                    message: `请求头组 "${name}" 创建成功`
+                });
+            });
+        });
+    });
+}
+
+// 删除请求头组
+async function deleteHeaderGroup({ groupId }) {
+    return new Promise((resolve, reject) => {
+        if (!groupId) {
+            reject(new Error('请求头组ID不能为空'));
+            return;
+        }
+        
+        chrome.storage.local.get(['global_headers_groups', 'global_headers_data', 'current_headers_group'], (result) => {
+            let groups = result.global_headers_groups || [];
+            const data = result.global_headers_data || {};
+            let currentGroupId = result.current_headers_group;
+            
+            // 查找并删除组
+            const groupIndex = groups.findIndex(g => g.id === groupId);
+            if (groupIndex === -1) {
+                reject(new Error(`未找到请求头组: ${groupId}`));
+                return;
+            }
+            
+            const deletedGroup = groups[groupIndex];
+            groups = groups.filter(g => g.id !== groupId);
+            delete data[groupId];
+            
+            // 如果删除的是当前组，清空当前选择
+            if (currentGroupId === groupId) {
+                currentGroupId = null;
+                // 清除所有请求头规则
+                chrome.runtime.sendMessage({
+                    type: 'UPDATE_GLOBAL_HEADERS',
+                    headers: []
+                });
+            }
+            
+            chrome.storage.local.set({
+                global_headers_groups: groups,
+                global_headers_data: data,
+                current_headers_group: currentGroupId
+            }, () => {
+                resolve({
+                    success: true,
+                    deletedGroupId: groupId,
+                    deletedGroupName: deletedGroup.name,
+                    message: `请求头组 "${deletedGroup.name}" 已删除`
+                });
+            });
+        });
+    });
+}
+
+// 切换当前请求头组
+async function switchHeaderGroup({ groupId }) {
+    return new Promise((resolve, reject) => {
+        chrome.storage.local.get(['global_headers_groups', 'global_headers_data', 'current_headers_group'], (result) => {
+            const groups = result.global_headers_groups || [];
+            const data = result.global_headers_data || {};
+            
+            // 如果 groupId 为 null 或空，则禁用所有请求头
+            if (!groupId) {
+                chrome.storage.local.set({ current_headers_group: null }, () => {
+                    chrome.runtime.sendMessage({
+                        type: 'UPDATE_GLOBAL_HEADERS',
+                        headers: []
+                    });
+                    resolve({
+                        success: true,
+                        currentGroupId: null,
+                        message: '已禁用所有请求头'
+                    });
+                });
+                return;
+            }
+            
+            // 验证组是否存在
+            const group = groups.find(g => g.id === groupId);
+            if (!group) {
+                reject(new Error(`未找到请求头组: ${groupId}`));
+                return;
+            }
+            
+            // 获取该组的启用请求头
+            const groupHeaders = data[groupId] || [];
+            const enabledHeaders = groupHeaders
+                .filter(h => h.enabled && h.name && h.name.trim())
+                .map(h => ({ name: h.name.trim(), value: h.value || '' }));
+            
+            // 更新当前组
+            chrome.storage.local.set({ current_headers_group: groupId }, () => {
+                // 通知 background 更新请求头规则
+                chrome.runtime.sendMessage({
+                    type: 'UPDATE_GLOBAL_HEADERS',
+                    headers: enabledHeaders
+                });
+                
+                resolve({
+                    success: true,
+                    currentGroupId: groupId,
+                    groupName: group.name,
+                    enabledHeaders: enabledHeaders.length,
+                    message: `已切换到请求头组 "${group.name}"，${enabledHeaders.length} 个请求头已启用`
+                });
+            });
+        });
+    });
+}
+
+// 添加单个请求头
+async function addHeader({ groupId, name, value, enabled = true }) {
+    return new Promise((resolve, reject) => {
+        if (!groupId) {
+            reject(new Error('请求头组ID不能为空'));
+            return;
+        }
+        if (!name || !name.trim()) {
+            reject(new Error('请求头名称不能为空'));
+            return;
+        }
+        
+        chrome.storage.local.get(['global_headers_groups', 'global_headers_data', 'current_headers_group'], (result) => {
+            const groups = result.global_headers_groups || [];
+            const data = result.global_headers_data || {};
+            const currentGroupId = result.current_headers_group;
+            
+            // 验证组是否存在
+            const group = groups.find(g => g.id === groupId);
+            if (!group) {
+                reject(new Error(`未找到请求头组: ${groupId}`));
+                return;
+            }
+            
+            // 添加请求头
+            const headerId = `h_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+            const newHeader = {
+                id: headerId,
+                name: name.trim(),
+                value: value || '',
+                enabled: enabled
+            };
+            
+            if (!data[groupId]) {
+                data[groupId] = [];
+            }
+            data[groupId].push(newHeader);
+            
+            chrome.storage.local.set({ global_headers_data: data }, () => {
+                // 如果是当前组，立即更新规则
+                if (groupId === currentGroupId) {
+                    const enabledHeaders = data[groupId]
+                        .filter(h => h.enabled && h.name && h.name.trim())
+                        .map(h => ({ name: h.name.trim(), value: h.value || '' }));
+                    
+                    chrome.runtime.sendMessage({
+                        type: 'UPDATE_GLOBAL_HEADERS',
+                        headers: enabledHeaders
+                    });
+                }
+                
+                resolve({
+                    success: true,
+                    headerId,
+                    header: newHeader,
+                    groupId,
+                    message: `请求头 "${name}" 添加成功`
+                });
+            });
+        });
+    });
+}
+
+// 更新请求头
+async function updateHeader({ groupId, headerId, name, value, enabled }) {
+    return new Promise((resolve, reject) => {
+        if (!groupId || !headerId) {
+            reject(new Error('请求头组ID和请求头ID不能为空'));
+            return;
+        }
+        
+        chrome.storage.local.get(['global_headers_data', 'current_headers_group'], (result) => {
+            const data = result.global_headers_data || {};
+            const currentGroupId = result.current_headers_group;
+            
+            if (!data[groupId]) {
+                reject(new Error(`未找到请求头组: ${groupId}`));
+                return;
+            }
+            
+            const headerIndex = data[groupId].findIndex(h => h.id === headerId);
+            if (headerIndex === -1) {
+                reject(new Error(`未找到请求头: ${headerId}`));
+                return;
+            }
+            
+            // 更新请求头
+            const header = data[groupId][headerIndex];
+            if (name !== undefined) header.name = name.trim();
+            if (value !== undefined) header.value = value;
+            if (enabled !== undefined) header.enabled = enabled;
+            
+            chrome.storage.local.set({ global_headers_data: data }, () => {
+                // 如果是当前组，立即更新规则
+                if (groupId === currentGroupId) {
+                    const enabledHeaders = data[groupId]
+                        .filter(h => h.enabled && h.name && h.name.trim())
+                        .map(h => ({ name: h.name.trim(), value: h.value || '' }));
+                    
+                    chrome.runtime.sendMessage({
+                        type: 'UPDATE_GLOBAL_HEADERS',
+                        headers: enabledHeaders
+                    });
+                }
+                
+                resolve({
+                    success: true,
+                    header: data[groupId][headerIndex],
+                    message: `请求头已更新`
+                });
+            });
+        });
+    });
+}
+
+// 删除请求头
+async function deleteHeader({ groupId, headerId }) {
+    return new Promise((resolve, reject) => {
+        if (!groupId || !headerId) {
+            reject(new Error('请求头组ID和请求头ID不能为空'));
+            return;
+        }
+        
+        chrome.storage.local.get(['global_headers_data', 'current_headers_group'], (result) => {
+            const data = result.global_headers_data || {};
+            const currentGroupId = result.current_headers_group;
+            
+            if (!data[groupId]) {
+                reject(new Error(`未找到请求头组: ${groupId}`));
+                return;
+            }
+            
+            const headerIndex = data[groupId].findIndex(h => h.id === headerId);
+            if (headerIndex === -1) {
+                reject(new Error(`未找到请求头: ${headerId}`));
+                return;
+            }
+            
+            const deletedHeader = data[groupId][headerIndex];
+            data[groupId].splice(headerIndex, 1);
+            
+            chrome.storage.local.set({ global_headers_data: data }, () => {
+                // 如果是当前组，立即更新规则
+                if (groupId === currentGroupId) {
+                    const enabledHeaders = data[groupId]
+                        .filter(h => h.enabled && h.name && h.name.trim())
+                        .map(h => ({ name: h.name.trim(), value: h.value || '' }));
+                    
+                    chrome.runtime.sendMessage({
+                        type: 'UPDATE_GLOBAL_HEADERS',
+                        headers: enabledHeaders
+                    });
+                }
+                
+                resolve({
+                    success: true,
+                    deletedHeader,
+                    message: `请求头 "${deletedHeader.name}" 已删除`
+                });
+            });
+        });
+    });
+}
+
+// 切换请求头启用状态
+async function toggleHeader({ groupId, headerId, enabled }) {
+    return updateHeader({ groupId, headerId, enabled });
+}
+
+// 批量更新请求头（替换整个组的请求头）
+async function batchUpdateHeaders({ groupId, headers }) {
+    return new Promise((resolve, reject) => {
+        if (!groupId) {
+            reject(new Error('请求头组ID不能为空'));
+            return;
+        }
+        if (!Array.isArray(headers)) {
+            reject(new Error('headers 必须是数组'));
+            return;
+        }
+        
+        chrome.storage.local.get(['global_headers_groups', 'global_headers_data', 'current_headers_group'], (result) => {
+            const groups = result.global_headers_groups || [];
+            const data = result.global_headers_data || {};
+            const currentGroupId = result.current_headers_group;
+            
+            // 验证组是否存在
+            const group = groups.find(g => g.id === groupId);
+            if (!group) {
+                reject(new Error(`未找到请求头组: ${groupId}`));
+                return;
+            }
+            
+            // 替换请求头
+            data[groupId] = headers.map((h, index) => ({
+                id: h.id || `h_${Date.now()}_${index}`,
+                name: (h.name || '').trim(),
+                value: h.value || '',
+                enabled: h.enabled !== false
+            }));
+            
+            chrome.storage.local.set({ global_headers_data: data }, () => {
+                // 如果是当前组，立即更新规则
+                if (groupId === currentGroupId) {
+                    const enabledHeaders = data[groupId]
+                        .filter(h => h.enabled && h.name && h.name.trim())
+                        .map(h => ({ name: h.name.trim(), value: h.value || '' }));
+                    
+                    chrome.runtime.sendMessage({
+                        type: 'UPDATE_GLOBAL_HEADERS',
+                        headers: enabledHeaders
+                    });
+                }
+                
+                resolve({
+                    success: true,
+                    groupId,
+                    headersCount: data[groupId].length,
+                    message: `请求头组 "${group.name}" 已更新，共 ${data[groupId].length} 个请求头`
+                });
+            });
+        });
+    });
+}
 
 // ============== 导出函数供background.js使用 ==============
 // 注意：在Service Worker中，这些函数通过全局作用域访问

@@ -165,6 +165,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const hookContent = document.querySelector('.hook-content');
     const vueContent = document.querySelector('.vue-content');
     const mcpContent = document.querySelector('.mcp-content');
+    const headersContent = document.querySelector('.headers-content');
     const vueScriptsList = document.querySelector('.vue-scripts-list');
     const vueRouterData = document.querySelector('.vue-router-data');
     const vueVersionBadge = document.querySelector('.vue-version-badge');
@@ -250,6 +251,72 @@ document.addEventListener('DOMContentLoaded', () => {
     // 🆕 全局模式存储键名
     const GLOBAL_MODE_KEY = 'antidebug_mode';
     const GLOBAL_SCRIPTS_KEY = 'global_scripts';
+    
+    // 🆕 全局请求头存储键名
+    const HEADERS_GROUPS_KEY = 'global_headers_groups';
+    const HEADERS_DATA_KEY = 'global_headers_data';
+    
+    // 🆕 全局请求头状态
+    let headersGroups = []; // [{id, name}]
+    let headersData = {}; // {groupId: [{id, name, value, enabled}]}
+    let currentHeadersGroupId = null;
+    
+    // 常用请求头列表（用于自动补全）
+    const COMMON_HEADERS = [
+        'Accept',
+        'Accept-Charset',
+        'Accept-Encoding',
+        'Accept-Language',
+        'Authorization',
+        'Cache-Control',
+        'Connection',
+        'Content-Disposition',
+        'Content-Encoding',
+        'Content-Language',
+        'Content-Length',
+        'Content-Type',
+        'Cookie',
+        'Date',
+        'DNT',
+        'Host',
+        'If-Match',
+        'If-Modified-Since',
+        'If-None-Match',
+        'If-Range',
+        'If-Unmodified-Since',
+        'Origin',
+        'Pragma',
+        'Proxy-Authorization',
+        'Range',
+        'Referer',
+        'Sec-Fetch-Dest',
+        'Sec-Fetch-Mode',
+        'Sec-Fetch-Site',
+        'TE',
+        'Transfer-Encoding',
+        'Upgrade',
+        'Upgrade-Insecure-Requests',
+        'User-Agent',
+        'Via',
+        'Warning',
+        'X-Api-Key',
+        'X-Auth-Token',
+        'X-Content-Type-Options',
+        'X-Correlation-ID',
+        'X-CSRF-Token',
+        'X-Custom-Header',
+        'X-Forwarded-For',
+        'X-Forwarded-Host',
+        'X-Forwarded-Port',
+        'X-Forwarded-Proto',
+        'X-Frame-Options',
+        'X-Real-IP',
+        'X-Request-ID',
+        'X-Requested-With',
+        'X-Token',
+        'X-Trace-ID',
+        'X-XSS-Protection'
+    ]; // 当前选中的标签组ID
 
     // 🆕 初始化全局模式状态
     function initializeGlobalMode() {
@@ -628,6 +695,7 @@ document.addEventListener('DOMContentLoaded', () => {
         hookContent.style.display = 'none';
         vueContent.style.display = 'none';
         if (mcpContent) mcpContent.style.display = 'none';
+        if (headersContent) headersContent.style.display = 'none';
 
         if (currentTab === 'antidebug') {
             // 显示反调试板块
@@ -657,6 +725,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (currentVueTab === 'scripts') {
                 switchVueTab('scripts');
             }
+        } else if (currentTab === 'headers') {
+            // 显示Headers板块
+            if (searchSection) searchSection.style.display = 'none';
+            if (hookNoticeContainer) hookNoticeContainer.style.display = 'none';
+            if (headersContent) headersContent.style.display = 'flex';
+            initHeadersPanel();
         } else if (currentTab === 'mcp') {
             // 显示MCP板块
             if (searchSection) searchSection.style.display = 'none';
@@ -2438,4 +2512,404 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
     }
+    
+    // ========== 全局请求头功能 ==========
+    
+    // 生成唯一ID
+    function generateHeaderId() {
+        return `hdr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    }
+    
+    // 初始化Headers面板
+    function initHeadersPanel() {
+        loadHeadersData().then(() => {
+            renderHeadersGroups();
+            if (headersGroups.length > 0 && !currentHeadersGroupId) {
+                currentHeadersGroupId = headersGroups[0].id;
+            }
+            renderHeadersItems();
+            bindHeadersEvents();
+        });
+    }
+    
+    // 加载Headers数据
+    function loadHeadersData() {
+        return new Promise((resolve) => {
+            chrome.storage.local.get([HEADERS_GROUPS_KEY, HEADERS_DATA_KEY, 'current_headers_group'], (result) => {
+                headersGroups = result[HEADERS_GROUPS_KEY] || [];
+                headersData = result[HEADERS_DATA_KEY] || {};
+                // 恢复上次选中的组
+                const savedGroupId = result['current_headers_group'];
+                if (savedGroupId && headersGroups.find(g => g.id === savedGroupId)) {
+                    currentHeadersGroupId = savedGroupId;
+                } else if (headersGroups.length > 0) {
+                    currentHeadersGroupId = headersGroups[0].id;
+                }
+                resolve();
+            });
+        });
+    }
+    
+    // 保存Headers数据
+    function saveHeadersData() {
+        chrome.storage.local.set({
+            [HEADERS_GROUPS_KEY]: headersGroups,
+            [HEADERS_DATA_KEY]: headersData
+        }, () => {
+            // 通知background更新请求头注入
+            notifyHeadersUpdate();
+        });
+    }
+    
+    // 通知background更新请求头（只使用当前选中组的请求头）
+    function notifyHeadersUpdate() {
+        // 只收集当前选中组的启用请求头
+        const enabledHeaders = [];
+        
+        if (currentHeadersGroupId) {
+            const items = headersData[currentHeadersGroupId] || [];
+            console.log('[AntiDebug] 当前组数据:', JSON.stringify(items));
+            
+            items.forEach(item => {
+                if (item.enabled && item.name && item.name.trim()) {
+                    console.log('[AntiDebug] 添加请求头:', item.name, '=', item.value);
+                    enabledHeaders.push({
+                        name: item.name.trim(),
+                        value: item.value || ''
+                    });
+                }
+            });
+        }
+        
+        console.log('[AntiDebug] 发送到 background 的请求头:', JSON.stringify(enabledHeaders));
+        
+        chrome.runtime.sendMessage({
+            type: 'UPDATE_GLOBAL_HEADERS',
+            headers: enabledHeaders,
+            groupId: currentHeadersGroupId
+        });
+    }
+    
+    // 渲染标签组列表（标签式布局）
+    function renderHeadersGroups() {
+        const container = document.getElementById('headers-tabs-list');
+        if (!container) return;
+        
+        container.innerHTML = '';
+        
+        if (headersGroups.length === 0) {
+            // 没有标签组时不显示任何内容
+            return;
+        }
+        
+        headersGroups.forEach(group => {
+            const items = headersData[group.id] || [];
+            const enabledCount = items.filter(i => i.enabled).length;
+            const totalCount = items.length;
+            const isActive = currentHeadersGroupId === group.id;
+            
+            const tabEl = document.createElement('div');
+            tabEl.className = `headers-tab-item ${isActive ? 'active' : 'inactive'}`;
+            tabEl.dataset.groupId = group.id;
+            
+            // 显示名称和启用数量/总数量
+            tabEl.innerHTML = `
+                <span class="tab-name">${group.name}</span>
+                <span class="tab-count ${enabledCount > 0 ? 'has-enabled' : ''}">${enabledCount}/${totalCount}</span>
+                <button class="tab-delete" title="删除">×</button>
+            `;
+            
+            // 点击选中标签组
+            tabEl.addEventListener('click', (e) => {
+                if (e.target.classList.contains('tab-delete')) return;
+                if (e.target.classList.contains('tab-name-input')) return;
+                currentHeadersGroupId = group.id;
+                renderHeadersGroups();
+                renderHeadersItems();
+                // 保存当前选中的组
+                chrome.storage.local.set({ 'current_headers_group': group.id });
+            });
+            
+            // 双击编辑名称
+            const nameEl = tabEl.querySelector('.tab-name');
+            nameEl.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                startEditGroupName(group.id, tabEl, nameEl);
+            });
+            
+            // 删除按钮
+            const deleteBtn = tabEl.querySelector('.tab-delete');
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteHeadersGroup(group.id);
+            });
+            
+            container.appendChild(tabEl);
+        });
+    }
+    
+    // 开始编辑标签组名称
+    function startEditGroupName(groupId, tabEl, nameEl) {
+        const group = headersGroups.find(g => g.id === groupId);
+        if (!group) return;
+        
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'tab-name-input';
+        input.value = group.name;
+        
+        nameEl.replaceWith(input);
+        input.focus();
+        input.select();
+        
+        const finishEdit = () => {
+            const newName = input.value.trim() || '未命名';
+            group.name = newName;
+            saveHeadersData();
+            renderHeadersGroups();
+        };
+        
+        input.addEventListener('blur', finishEdit);
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                input.blur();
+            }
+        });
+        input.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+    }
+    
+    // 添加标签组
+    function addHeadersGroup() {
+        // 使用更好的默认命名：配置A、配置B、配置C...
+        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        let nextIndex = 0;
+        const usedNames = headersGroups.map(g => g.name);
+        
+        // 找到下一个可用的字母
+        while (nextIndex < letters.length && usedNames.includes(`配置${letters[nextIndex]}`)) {
+            nextIndex++;
+        }
+        
+        const name = nextIndex < letters.length ? `配置${letters[nextIndex]}` : `配置${headersGroups.length + 1}`;
+        
+        const newGroup = {
+            id: generateHeaderId(),
+            name: name
+        };
+        headersGroups.push(newGroup);
+        headersData[newGroup.id] = [];
+        currentHeadersGroupId = newGroup.id;
+        saveHeadersData();
+        renderHeadersGroups();
+        renderHeadersItems();
+    }
+    
+    // 删除标签组
+    function deleteHeadersGroup(groupId) {
+        headersGroups = headersGroups.filter(g => g.id !== groupId);
+        delete headersData[groupId];
+        
+        if (currentHeadersGroupId === groupId) {
+            currentHeadersGroupId = headersGroups.length > 0 ? headersGroups[0].id : null;
+        }
+        
+        saveHeadersData();
+        renderHeadersGroups();
+        renderHeadersItems();
+    }
+    
+    // 渲染请求头列表
+    function renderHeadersItems() {
+        const container = document.getElementById('headers-items-list');
+        const emptyHint = document.getElementById('headers-empty-hint');
+        const titleEl = document.getElementById('current-group-name');
+        const addBtn = document.getElementById('add-header-btn');
+        
+        if (!container) return;
+        
+        // 更新标题
+        if (titleEl) {
+            const group = headersGroups.find(g => g.id === currentHeadersGroupId);
+            titleEl.textContent = group ? group.name : '请求头';
+        }
+        
+        // 如果没有标签组
+        if (headersGroups.length === 0) {
+            container.style.display = 'none';
+            if (addBtn) addBtn.style.display = 'none';
+            if (emptyHint) {
+                emptyHint.style.display = 'flex';
+                emptyHint.querySelector('p').textContent = '点击上方 + 添加标签组';
+            }
+            return;
+        }
+        
+        // 如果没有选中的标签组
+        if (!currentHeadersGroupId) {
+            container.style.display = 'none';
+            if (addBtn) addBtn.style.display = 'none';
+            if (emptyHint) {
+                emptyHint.style.display = 'flex';
+                emptyHint.querySelector('p').textContent = '选择一个标签组';
+            }
+            return;
+        }
+        
+        if (addBtn) addBtn.style.display = 'flex';
+        
+        const items = headersData[currentHeadersGroupId] || [];
+        
+        if (items.length === 0) {
+            container.style.display = 'none';
+            if (emptyHint) {
+                emptyHint.style.display = 'flex';
+                emptyHint.querySelector('p').textContent = '点击「添加请求头」按钮添加';
+            }
+            return;
+        }
+        
+        container.style.display = 'flex';
+        if (emptyHint) emptyHint.style.display = 'none';
+        
+        container.innerHTML = '';
+        
+        items.forEach((item, index) => {
+            const itemEl = document.createElement('div');
+            itemEl.className = `header-item ${item.enabled ? 'enabled' : ''}`;
+            itemEl.dataset.itemId = item.id;
+            
+            itemEl.innerHTML = `
+                <input type="checkbox" class="header-checkbox" ${item.enabled ? 'checked' : ''}>
+                <div class="header-inputs">
+                    <input type="text" class="header-name-input" placeholder="Name" value="${item.name || ''}" list="header-suggestions-${item.id}" autocomplete="off">
+                    <datalist id="header-suggestions-${item.id}"></datalist>
+                    <input type="text" class="header-value-input" placeholder="Value" value="${item.value || ''}">
+                </div>
+                <button class="header-delete-btn">×</button>
+            `;
+            
+            // 绑定事件
+            const checkbox = itemEl.querySelector('.header-checkbox');
+            const nameInput = itemEl.querySelector('.header-name-input');
+            const valueInput = itemEl.querySelector('.header-value-input');
+            const deleteBtn = itemEl.querySelector('.header-delete-btn');
+            
+            checkbox.addEventListener('change', (e) => {
+                item.enabled = e.target.checked;
+                itemEl.classList.toggle('enabled', item.enabled);
+                saveHeadersData();
+                renderHeadersGroups(); // 更新指示灯
+            });
+            
+            // 自动补全逻辑
+            const datalist = itemEl.querySelector(`#header-suggestions-${item.id}`);
+            
+            function updateSuggestions(inputValue) {
+                if (!datalist) return;
+                datalist.innerHTML = '';
+                
+                if (!inputValue || inputValue.length === 0) return;
+                
+                const lowerInput = inputValue.toLowerCase();
+                const matches = COMMON_HEADERS.filter(h => 
+                    h.toLowerCase().includes(lowerInput)
+                );
+                
+                matches.forEach(match => {
+                    const option = document.createElement('option');
+                    option.value = match;
+                    datalist.appendChild(option);
+                });
+            }
+            
+            nameInput.addEventListener('input', (e) => {
+                item.name = e.target.value;
+                updateSuggestions(e.target.value);
+            });
+            
+            nameInput.addEventListener('focus', (e) => {
+                updateSuggestions(e.target.value);
+            });
+            
+            nameInput.addEventListener('blur', () => {
+                saveHeadersData();
+            });
+            
+            valueInput.addEventListener('input', (e) => {
+                item.value = e.target.value;
+            });
+            
+            valueInput.addEventListener('blur', () => {
+                saveHeadersData();
+            });
+            
+            deleteBtn.addEventListener('click', () => {
+                deleteHeaderItem(item.id);
+            });
+            
+            container.appendChild(itemEl);
+        });
+    }
+    
+    // 添加请求头
+    function addHeaderItem() {
+        if (!currentHeadersGroupId) {
+            showToast('请先选择或创建标签组');
+            return;
+        }
+        
+        if (!headersData[currentHeadersGroupId]) {
+            headersData[currentHeadersGroupId] = [];
+        }
+        
+        const newItem = {
+            id: generateHeaderId(),
+            name: '',
+            value: '',
+            enabled: true
+        };
+        
+        headersData[currentHeadersGroupId].push(newItem);
+        saveHeadersData();
+        renderHeadersItems();
+        renderHeadersGroups();
+        
+        // 自动聚焦到新添加的输入框
+        setTimeout(() => {
+            const container = document.getElementById('headers-items-list');
+            const lastItem = container.lastElementChild;
+            if (lastItem) {
+                const nameInput = lastItem.querySelector('.header-name-input');
+                if (nameInput) nameInput.focus();
+            }
+        }, 50);
+    }
+    
+    // 删除请求头
+    function deleteHeaderItem(itemId) {
+        if (!currentHeadersGroupId) return;
+        
+        headersData[currentHeadersGroupId] = (headersData[currentHeadersGroupId] || []).filter(i => i.id !== itemId);
+        saveHeadersData();
+        renderHeadersItems();
+        renderHeadersGroups();
+    }
+    
+    // 绑定Headers按钮事件
+    function bindHeadersEvents() {
+        const addGroupBtn = document.getElementById('add-group-btn');
+        const addHeaderBtn = document.getElementById('add-header-btn');
+        
+        if (addGroupBtn) {
+            addGroupBtn.onclick = addHeadersGroup;
+        }
+        
+        if (addHeaderBtn) {
+            addHeaderBtn.onclick = addHeaderItem;
+        }
+    }
+    
+    // ========== 全局请求头功能结束 ==========
 });

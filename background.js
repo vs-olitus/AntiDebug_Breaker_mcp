@@ -9,6 +9,9 @@ let isInitialized = false;
 const GLOBAL_MODE_KEY = 'antidebug_mode';
 const GLOBAL_SCRIPTS_KEY = 'global_scripts';
 
+// 🆕 全局请求头存储键名
+const HEADERS_ENABLED_KEY = 'global_headers_enabled';
+
 // 生成全局唯一ID
 function generateUniqueId() {
     return `ad_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -257,6 +260,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
     
+    // 🆕 处理全局请求头更新
+    if (message.type === 'UPDATE_GLOBAL_HEADERS') {
+        updateGlobalHeaders(message.headers);
+        // 更新扩展图标徽章显示请求头数量
+        updateHeadersBadge(message.headers ? message.headers.length : 0);
+        sendResponse({success: true});
+        return true;
+    }
+    
     // 🆕 处理脚本注册更新请求（支持全局模式）
     if (message.type === 'update_scripts_registration') {
         const isGlobalMode = message.isGlobalMode || false;
@@ -387,12 +399,135 @@ function updateBadgeForHostname(hostname, count) {
     });
 }
 
-// 设置徽章文本
-function updateBadge(tabId, count) {
-    if (count > 0) {
-        chrome.action.setBadgeText({text: count.toString(), tabId});
-        chrome.action.setBadgeBackgroundColor({color: '#4688F1', tabId});
+// 🆕 全局请求头数量缓存
+let globalHeadersCount = 0;
+
+// 设置徽章文本（脚本数量 + 请求头数量）
+function updateBadge(tabId, scriptCount) {
+    const totalCount = scriptCount + globalHeadersCount;
+    console.log('[AntiDebug] updateBadge: tabId=', tabId, ', scriptCount=', scriptCount, ', globalHeadersCount=', globalHeadersCount, ', total=', totalCount);
+    if (totalCount > 0) {
+        chrome.action.setBadgeText({text: totalCount.toString(), tabId});
+        // 如果有请求头用绿色，否则用蓝色
+        const color = globalHeadersCount > 0 ? '#00c853' : '#4688F1';
+        chrome.action.setBadgeBackgroundColor({color: color, tabId});
     } else {
         chrome.action.setBadgeText({text: '', tabId});
     }
 }
+
+// 🆕 更新全局请求头徽章
+function updateHeadersBadge(count) {
+    globalHeadersCount = count;
+    console.log('[AntiDebug] 更新请求头徽章, 数量:', count, ', globalHeadersCount:', globalHeadersCount);
+    
+    // 更新所有标签页的徽章
+    chrome.tabs.query({}, (tabs) => {
+        console.log('[AntiDebug] 更新', tabs.length, '个标签页的徽章');
+        tabs.forEach(tab => {
+            if (tab.url) {
+                updateBadgeForTab(tab);
+            }
+        });
+    });
+}
+
+// 🆕 更新全局请求头 - 双重方案：declarativeNetRequest + content script hook
+async function updateGlobalHeaders(headers) {
+    const hasHeaders = headers && headers.length > 0;
+    
+    console.log('[AntiDebug] updateGlobalHeaders 被调用, headers:', JSON.stringify(headers));
+    
+    // 使用 declarativeNetRequest API（和 ModHeader 一样）
+    try {
+        // 先移除所有旧规则
+        const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
+        const ruleIdsToRemove = existingRules.map(rule => rule.id);
+        
+        if (ruleIdsToRemove.length > 0) {
+            await chrome.declarativeNetRequest.updateDynamicRules({
+                removeRuleIds: ruleIdsToRemove
+            });
+            console.log('[AntiDebug] 已移除旧规则:', ruleIdsToRemove);
+        }
+        
+        if (hasHeaders) {
+            const validHeaders = headers.filter(h => h.name && h.name.trim());
+            
+            if (validHeaders.length > 0) {
+                // 为每个请求头创建操作
+                const requestHeaders = validHeaders.map(h => ({
+                    header: h.name.trim(),
+                    operation: 'set',
+                    value: h.value || ''
+                }));
+                
+                // 使用正确的规则格式
+                const rules = [{
+                    id: 1,
+                    priority: 1,
+                    action: {
+                        type: 'modifyHeaders',
+                        requestHeaders: requestHeaders
+                    },
+                    condition: {
+                        // 匹配所有 http 和 https URL
+                        regexFilter: '.*',
+                        resourceTypes: ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'media', 'websocket', 'other']
+                    }
+                }];
+                
+                console.log('[AntiDebug] 添加规则:', JSON.stringify(rules, null, 2));
+                
+                await chrome.declarativeNetRequest.updateDynamicRules({
+                    addRules: rules
+                });
+                
+                // 验证规则是否添加成功
+                const currentRules = await chrome.declarativeNetRequest.getDynamicRules();
+                console.log('[AntiDebug] ✅ 当前活动规则数量:', currentRules.length);
+                console.log('[AntiDebug] 规则详情:', JSON.stringify(currentRules, null, 2));
+            }
+        } else {
+            console.log('[AntiDebug] 已清除所有请求头规则');
+        }
+    } catch (error) {
+        console.error('[AntiDebug] ❌ declarativeNetRequest 失败:', error.message, error.stack);
+    }
+    
+}
+
+// 🆕 初始化时加载全局请求头配置（只使用当前选中组）
+async function initGlobalHeaders() {
+    try {
+        const result = await chrome.storage.local.get(['global_headers_groups', 'global_headers_data', 'current_headers_group']);
+        const data = result.global_headers_data || {};
+        const currentGroupId = result.current_headers_group;
+        
+        // 只收集当前选中组的启用请求头
+        const enabledHeaders = [];
+        
+        if (currentGroupId && data[currentGroupId]) {
+            const items = data[currentGroupId] || [];
+            items.forEach(item => {
+                if (item.enabled && item.name && item.name.trim()) {
+                    enabledHeaders.push({
+                        name: item.name.trim(),
+                        value: item.value || ''
+                    });
+                }
+            });
+        }
+        
+        // 无论有无请求头都更新规则（确保清理旧规则）
+        await updateGlobalHeaders(enabledHeaders);
+        
+        // 更新图标徽章
+        updateHeadersBadge(enabledHeaders.length);
+    } catch (error) {
+        console.error('[AntiDebug] 初始化全局请求头失败:', error);
+    }
+}
+
+// 在初始化时调用
+initGlobalHeaders();

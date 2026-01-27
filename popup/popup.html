@@ -48,6 +48,12 @@
                     </svg>
                     <span>Vue</span>
                 </button>
+                <button class="nav-item" data-tab="headers">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 6h16M4 12h16M4 18h12"></path>
+                    </svg>
+                    <span>Headers</span>
+                </button>
                 <button class="nav-item" data-tab="mcp">
                     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
@@ -199,6 +205,44 @@
                     <div class="vue-empty-hint" style="display: none;">
                         <div class="empty-icon">📡</div>
                         <p>开启「获取路由」脚本并刷新页面</p>
+                    </div>
+                </div>
+
+                <!-- Headers板块 -->
+                <div class="headers-content" style="display: none;">
+                    <!-- 顶部标签组区域 -->
+                    <div class="headers-tabs-bar">
+                        <div class="headers-tabs-row">
+                            <div class="headers-tabs-list" id="headers-tabs-list">
+                                <!-- 动态生成标签组标签 -->
+                            </div>
+                            <button class="headers-add-group-btn" id="add-group-btn" title="添加标签组">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- 请求头内容区域 -->
+                    <div class="headers-panel">
+                        <div class="headers-panel-header">
+                            <span class="headers-panel-title" id="current-group-name">请求头</span>
+                            <button class="headers-add-item-btn" id="add-header-btn" title="添加请求头">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                                <span>添加请求头</span>
+                            </button>
+                        </div>
+                        <div class="headers-items-list" id="headers-items-list">
+                            <!-- 动态生成请求头列表 -->
+                        </div>
+                        <div class="headers-empty-hint" id="headers-empty-hint">
+                            <p>点击上方 + 添加标签组</p>
+                        </div>
                     </div>
                 </div>
 

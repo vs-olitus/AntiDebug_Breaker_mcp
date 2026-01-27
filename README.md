@@ -96,6 +96,29 @@ AntiDebug Breaker MCP 是一款专为前端 JavaScript 逆向工程和渗透测�
 - 📦 **批量导出**：一键复制所有路径或完整 URL
 - 🎯 **自定义前置路由**：灵活配置路由前缀
 
+### 📝 Headers - 请求头管理
+
+全局请求头注入功能，类似 ModHeader 扩展，支持分组管理。
+
+![364ec82f1f09aac0460827f3c793c3cc](https://s1.galgame.fun/imgb/u55/20260127_697823a14bff9.png)
+
+![74ea4d1dbe3e6e243231571b1ce1ff57](https://s1.galgame.fun/imgb/u55/20260127_697823a1355fd.png)
+
+
+
+| 功能 | 说明 |
+|------|------|
+| **请求头分组** | 创建多个请求头组，快速切换不同环境配置 |
+| **全局注入** | 请求头自动添加到所有 HTTP 请求 |
+| **启用/禁用** | 单独控制每个请求头的启用状态 |
+| **MCP 集成** | 通过 AI 工具管理请求头配置 |
+
+**使用场景：**
+- 🔐 添加认证 Token（Authorization、X-Token 等）
+- 🏢 切换租户 ID（tenant-id）
+- 🧪 测试不同环境的请求头配置
+- 🔧 调试 API 接口
+
 ### 🤖 MCP - AI 集成
 
 🔗 支持 Model Context Protocol (MCP)，可通过 Cursor AI 直接控制浏览器。
@@ -105,7 +128,7 @@ AntiDebug Breaker MCP 是一款专为前端 JavaScript 逆向工程和渗透测�
 **MCP 功能：**
 - 🔌 与 Cursor AI / Claude / Trae 等编辑器无缝集成
 - 🌍 全局操作模式：通过页面标题匹配操作任意标签页
-- 🛠️ 50+ 专用工具：页面分析、网络监控、加密捕获等
+- 🛠️ 60+ 专用工具：页面分析、网络监控、加密捕获、请求头管理等
 
 ---
 
@@ -153,6 +176,19 @@ AntiDebug Breaker MCP 是一款专为前端 JavaScript 逆向工程和渗透测�
 2. 刷新目标 Vue 网站
 3. 返回插件查看「路由列表」标签页
 4. 点击「复制」或「打开」操作路由
+
+### 📝 请求头管理
+
+1. 点击左侧「Headers」菜单进入请求头管理
+2. 点击「新建分组」创建请求头组
+3. 在分组中添加请求头（名称和值）
+4. 点击分组右侧的「启用」按钮激活该组请求头
+5. 所有 HTTP 请求都会自动携带已启用的请求头
+
+**使用技巧：**
+- 🔄 **快速切换**：创建多个分组（如"开发环境"、"测试环境"），一键切换
+- ✅ **单独控制**：每个请求头可单独启用/禁用
+- 🤖 **MCP 管理**：通过 AI 工具快速配置请求头
 
 ---
 
@@ -227,11 +263,30 @@ npm start
 | 工具类别 | 功能 |
 |---------|------|
 | **页面操作** | 导航、截图、表单填写、元素点击 |
-| **网络监控** | 获取请求记录、API 分析 |
+| **网络监控** | 获取请求记录、API 分析、Burp 格式导出 |
 | **存储操作** | Cookie、LocalStorage、SessionStorage |
 | **加密分析** | RSA/AES 加密捕获、密钥提取 |
 | **Vue 分析** | 路由扫描、数据提取 |
 | **敏感数据检测** | 身份证、手机号、银行卡等 |
+| **请求头管理** | 创建/删除/切换请求头组、添加/更新/删除请求头 |
+
+<details>
+<summary>📋 <b>请求头管理工具详情</b></summary>
+
+| 工具名 | 功能描述 |
+|--------|----------|
+| `get_headers_config` | 获取所有请求头组和请求头的完整配置 |
+| `create_header_group` | 创建新的请求头组 |
+| `delete_header_group` | 删除指定的请求头组 |
+| `switch_header_group` | 切换/启用指定的请求头组（传空禁用所有） |
+| `add_header` | 向指定组添加单个请求头 |
+| `update_header` | 更新请求头的名称、值或启用状态 |
+| `delete_header` | 删除指定的请求头 |
+| `toggle_header` | 启用/禁用单个请求头 |
+| `batch_update_headers` | 批量替换一个组的所有请求头 |
+| `quick_set_headers` | ⭐ 快速设置：创建组+添加请求头+立即启用 |
+
+</details>
 
 ### 💡 常用提示词
 
@@ -377,6 +432,35 @@ npm start
 </details>
 
 <details>
+<summary>📝 <b>请求头管理</b></summary>
+
+```
+获取当前所有请求头配置
+```
+
+```
+创建一个新的请求头组"测试环境"，添加 Authorization 和 X-Token 请求头
+```
+
+```
+快速设置请求头：创建"生产环境"组，添加 tenant-id: 1001 和 Authorization: Bearer xxx
+```
+
+```
+切换到"测试环境"请求头组
+```
+
+```
+禁用所有请求头
+```
+
+```
+向当前请求头组添加 X-Custom-Header: custom-value
+```
+
+</details>
+
+<details>
 <summary>🔥 <b>综合渗透测试</b></summary>
 
 ```
@@ -397,10 +481,6 @@ npm start
 ```
 
 </details>
-
-测试效果
-
-![剪贴板 2026-01-26 下午 10.03.05](/Users/vsolitus/Downloads/AntiDebug_Breaker_mcp-4.0.0/image/README/剪贴板 2026-01-26 下午 10.03.05.png)
 
 ---
 
@@ -443,6 +523,7 @@ npm start
 | FakeCryptoJS | [https://github.com/AntSwordProject/FakeCryptoJS](https://github.com/AntSwordProject/FakeCryptoJS) |
 | vue-force-dev | [https://github.com/AntSwordProject/vue-force-dev](https://github.com/AntSwordProject/vue-force-dev) |
 | Hook_JS | [https://github.com/AntSwordProject/Hook_JS](https://github.com/AntSwordProject/Hook_JS) |
+| ModHeader - Modify HTTP headers | [https://chromewebstore.google.com/detail/idgpnmonknjnojddfkpgkljpfnnfcklj](https://chromewebstore.google.com/detail/idgpnmonknjnojddfkpgkljpfnnfcklj) |
 
 ---
 

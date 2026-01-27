@@ -9,7 +9,10 @@
     "activeTab",
     "tabs",
     "cookies",
-    "webRequest"
+    "webRequest",
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess",
+    "declarativeNetRequestFeedback"
   ],
   "host_permissions": [
     "<all_urls>"
