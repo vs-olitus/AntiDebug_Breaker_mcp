@@ -194,7 +194,108 @@ AntiDebug Breaker MCP 是一款专为前端 JavaScript 逆向工程和渗透测�
 
 > 📝 **使用说明：** 将 `{网站title}` 替换为目标网站的实际标题
 
+<<<<<<< HEAD
 #### 🔍 一键分析页面
+=======
+```bash
+# 进入 MCP 服务器目录
+cd mcp-server
+
+# 安装依赖
+npm install
+
+# 启动服务器
+npm start
+```
+
+### ⚙️ 配置 Cursor
+
+<table>
+<tr>
+<td width="50%">
+**步骤 1：打开 MCP 配置**
+
+1. 打开 Cursor 设置
+2. 点击 **Tools** → **MCP**
+3. 点击 **New MCP Server**
+
+![10950](https://s1.galgame.fun/imgb/u55/20260126_69777962549af.png)
+
+**步骤 2：添加配置**
+
+在打开的 `mcp.json` 文件中添加以下配置：
+
+```json
+{
+  "mcpServers": {
+    "AntiDebug_Breaker_mcp": {
+      "command": "node",
+      "args": ["/你的路径/AntiDebug_Breaker_mcp-4.0.0/mcp-server/dist/index.js"]
+    }
+  }
+}
+```
+
+> 📝 **注意**：请将 `/你的路径/` 替换为实际的插件安装路径
+
+**步骤 3：启用浏览器连接**
+
+<table>
+<tr>
+<td width="50%">
+
+1. 打开浏览器中的插件
+2. 点击 **启用 MCP** 按钮
+3. 右上角显示 **已连接** 即表示成功
+
+</td>
+<td width="50%">
+
+![剪贴板 2026-01-27 下午 3.43.32](https://s1.galgame.fun/imgb/u55/20260127_69786cafad834.png)
+
+</td>
+</tr>
+</table>
+
+### 🛠️ MCP 工具列表
+
+| 工具类别 | 功能 |
+|---------|------|
+| **页面操作** | 导航、截图、表单填写、元素点击 |
+| **网络监控** | 获取请求记录、API 分析、Burp 格式导出 |
+| **存储操作** | Cookie、LocalStorage、SessionStorage |
+| **加密分析** | RSA/AES 加密捕获、密钥提取 |
+| **Vue 分析** | 路由扫描、数据提取 |
+| **敏感数据检测** | 身份证、手机号、银行卡等 |
+| **请求头管理** | 创建/删除/切换请求头组、添加/更新/删除请求头 |
+
+<details>
+<summary>📋 <b>请求头管理工具详情</b></summary>
+
+| 工具名 | 功能描述 |
+|--------|----------|
+| `get_headers_config` | 获取所有请求头组和请求头的完整配置 |
+| `create_header_group` | 创建新的请求头组 |
+| `delete_header_group` | 删除指定的请求头组 |
+| `switch_header_group` | 切换/启用指定的请求头组（传空禁用所有） |
+| `add_header` | 向指定组添加单个请求头 |
+| `update_header` | 更新请求头的名称、值或启用状态 |
+| `delete_header` | 删除指定的请求头 |
+| `toggle_header` | 启用/禁用单个请求头 |
+| `batch_update_headers` | 批量替换一个组的所有请求头 |
+| `quick_set_headers` | ⭐ 快速设置：创建组+添加请求头+立即启用 |
+
+</details>
+
+### 💡 常用提示词
+前置内容：使用AntiDebug Breaker_mcp的mcp
+如
+```
+使用AntiDebug Breaker_mcp的mcp帮我分析当前页面，检测反调试机制、前端框架、加密方式和认证机制
+```
+<details>
+<summary>🔍 <b>一键分析页面</b></summary>
+>>>>>>> 5071e43f5107d27076a93df0008b72165ed10c06
 
 ```
 请帮我调用 AntiDebug_Breaker_mcp 分析 {网站title} 页面，检测反调试机制、前端框架、加密方式和认证机制
