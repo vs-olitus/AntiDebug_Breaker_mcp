@@ -43,13 +43,16 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             if (response) {
-                const { connected, enabled, error } = response;
+                const { connected, enabled, error, connecting, port, reconnectAttempts, maxReconnectAttempts } = response;
                 
                 if (mcpIndicator) {
+                    mcpIndicator.classList.remove('connected', 'error', 'connecting');
                     if (connected) {
                         mcpIndicator.classList.add('connected');
-                    } else {
-                        mcpIndicator.classList.remove('connected');
+                    } else if (error) {
+                        mcpIndicator.classList.add('error');
+                    } else if (connecting) {
+                        mcpIndicator.classList.add('connecting');
                     }
                 }
                 
@@ -60,14 +63,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (!enabled) {
                         mcpStatusText.textContent = '状态：已禁用';
                         mcpStatusText.classList.add('status-disabled');
-                    } else if (error) {
-                        mcpStatusText.textContent = '状态：连接失败 ✗';
-                        mcpStatusText.classList.add('status-error');
                     } else if (connected) {
-                        mcpStatusText.textContent = '状态：已连接 ✓';
+                        mcpStatusText.textContent = `状态：已连接 ✓ (端口:${port})`;
                         mcpStatusText.classList.add('status-connected');
-                    } else {
+                    } else if (error) {
+                        mcpStatusText.textContent = `状态：连接失败 ✗ (端口:${port})`;
+                        mcpStatusText.classList.add('status-error');
+                    } else if (connecting) {
                         mcpStatusText.textContent = '状态：连接中...';
+                        mcpStatusText.classList.add('status-connecting');
+                    } else {
+                        // 正在尝试重连
+                        const attemptsInfo = reconnectAttempts > 0 ? ` (${reconnectAttempts}/${maxReconnectAttempts})` : '';
+                        mcpStatusText.textContent = `状态：等待连接${attemptsInfo}`;
                         mcpStatusText.classList.add('status-connecting');
                     }
                 }
@@ -113,6 +121,66 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 初始化MCP
     initMCPStatus();
+
+    // ========== MCP端口配置 ==========
+    const mcpPortInput = document.getElementById('mcp-port-input');
+    const mcpPortSaveBtn = document.getElementById('mcp-port-save');
+    
+    // 初始化MCP端口
+    function initMCPPort() {
+        chrome.storage.local.get(['mcp_port'], (result) => {
+            const port = result.mcp_port || 9527;
+            if (mcpPortInput) {
+                mcpPortInput.value = port;
+            }
+        });
+    }
+    
+    // 保存端口配置
+    function saveMCPPort() {
+        if (!mcpPortInput) return;
+        
+        let port = parseInt(mcpPortInput.value, 10);
+        
+        // 验证端口范围
+        if (isNaN(port) || port < 1024 || port > 65535) {
+            showToast('端口无效 (1024-65535)');
+            return;
+        }
+        
+        chrome.storage.local.set({ mcp_port: port }, () => {
+            showToast(`端口已设置为 ${port}`);
+            // 重新初始化MCP连接
+            chrome.storage.local.get(['mcp_enabled'], (result) => {
+                if (result.mcp_enabled) {
+                    // 通知background重新连接
+                    chrome.runtime.sendMessage({ type: 'RECONNECT_MCP' }, () => {
+                        if (chrome.runtime.lastError) {
+                            // 忽略错误
+                        }
+                    });
+                }
+            });
+        });
+    }
+    
+    // 端口保存按钮点击事件
+    if (mcpPortSaveBtn) {
+        mcpPortSaveBtn.addEventListener('click', saveMCPPort);
+    }
+    
+    // 端口输入框回车事件
+    if (mcpPortInput) {
+        mcpPortInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                saveMCPPort();
+            }
+        });
+    }
+    
+    // 初始化端口配置
+    initMCPPort();
+    // ========================================================
 
     // 定期更新MCP状态
     setInterval(updateMCPStatusUI, 3000);

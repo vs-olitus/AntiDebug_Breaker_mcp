@@ -1,7 +1,7 @@
 {
   "name": "antidebug-breaker-mcp",
   "version": "1.0.0",
-  "description": "MCP Server for AntiDebug Breaker - 通过Cursor控制浏览器调试分析",
+  "description": "MCP Server for AntiDebug Breaker",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {

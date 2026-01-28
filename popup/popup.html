@@ -272,6 +272,23 @@
                         <div class="mcp-control-card">
                             <div class="mcp-control-row">
                                 <div class="mcp-control-info">
+                                    <span class="mcp-control-title">连接端口</span>
+                                    <span class="mcp-control-desc">与 mcp.json 中配置的端口保持一致</span>
+                                </div>
+                                <div class="mcp-port-input-wrapper">
+                                    <input type="number" id="mcp-port-input" class="mcp-port-input" value="9527" min="1024" max="65535" placeholder="9527">
+                                    <button id="mcp-port-save" class="mcp-port-save-btn" title="保存端口">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <polyline points="20 6 9 17 4 12"></polyline>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mcp-control-card">
+                            <div class="mcp-control-row">
+                                <div class="mcp-control-info">
                                     <span class="mcp-control-title">全局操作模式</span>
                                     <span class="mcp-control-desc">启用后可通过页面标题匹配操作指定网站</span>
                                 </div>
@@ -285,11 +302,25 @@
                         <div class="mcp-info-card">
                             <h4>使用说明</h4>
                             <ol class="mcp-instructions">
-                                <li>启动 MCP 服务器（在终端运行）</li>
+                                <li>在 Cursor 的 mcp.json 中配置 MCP_PORT 环境变量（可选）</li>
+                                <li>上方设置的端口需与 MCP 服务器端口一致（默认: 9527）</li>
                                 <li>打开上方的 "启用 MCP" 开关</li>
                                 <li>在 Cursor 中使用 MCP 工具进行操作</li>
-                                <li>开启 "全局操作模式" 后，可通过 title 匹配操作任意标签页</li>
                             </ol>
+                            <div class="mcp-config-example">
+                                <h5>mcp.json 配置示例：</h5>
+                                <pre class="mcp-config-code">{
+  "mcpServers": {
+    "AntiDebug_Breaker_mcp": {
+      "command": "node",
+      "args": ["/path/to/mcp-server/dist/index.js"],
+      "env": {
+        "MCP_PORT": "9527"
+      }
+    }
+  }
+}</pre>
+                            </div>
                         </div>
 
                     </div>

@@ -8,7 +8,7 @@
  */
 
 // ============== 配置 ==============
-const MCP_WS_URL = 'ws://localhost:9527';
+const MCP_DEFAULT_PORT = 9527;
 const RECONNECT_INTERVAL = 5000; // 重连间隔（毫秒）
 const MAX_RECONNECT_ATTEMPTS = 10;
 
@@ -17,6 +17,7 @@ let ws = null;
 let isConnected = false;
 let reconnectAttempts = 0;
 let mcpEnabled = false;
+let mcpPort = MCP_DEFAULT_PORT; // 当前使用的端口
 let networkRequests = []; // 存储网络请求
 let hookDataBuffer = []; // 存储Hook捕获的数据
 let heartbeatInterval = null; // 心跳定时器
@@ -24,13 +25,22 @@ let lastPongTime = 0; // 最后收到 pong 的时间
 const HEARTBEAT_INTERVAL = 5000; // 心跳间隔 5 秒
 const HEARTBEAT_TIMEOUT = 10000; // 心跳超时 10 秒
 
+// 获取当前MCP WebSocket URL
+function getMCPWsUrl() {
+    return `ws://localhost:${mcpPort}`;
+}
+
 // ============== WebSocket 连接管理 ==============
 
 // 初始化MCP连接
 function initMCPConnection() {
-    // 检查是否启用了MCP
-    chrome.storage.local.get(['mcp_enabled'], (result) => {
+    // 检查是否启用了MCP，并获取端口配置
+    chrome.storage.local.get(['mcp_enabled', 'mcp_port'], (result) => {
         mcpEnabled = result.mcp_enabled === true;
+        mcpPort = result.mcp_port || MCP_DEFAULT_PORT;
+        
+        console.log('[MCP Client] 配置端口:', mcpPort);
+        
         if (mcpEnabled) {
             connectToMCP();
         }
@@ -43,10 +53,11 @@ function connectToMCP() {
         return;
     }
 
-    console.log('[MCP Client] 正在连接到MCP服务器:', MCP_WS_URL);
+    const wsUrl = getMCPWsUrl();
+    console.log('[MCP Client] 正在连接到MCP服务器:', wsUrl);
     
     try {
-        ws = new WebSocket(MCP_WS_URL);
+        ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
             console.log('[MCP Client] 已连接到MCP服务器');
@@ -450,6 +461,15 @@ async function handleMCPMessage(message) {
                 
             case 'BATCH_UPDATE_HEADERS':
                 result = await batchUpdateHeaders(data);
+                break;
+            
+            // ===== 智能场景协调功能 =====
+            case 'BATCH_ENABLE_SCRIPTS':
+                result = await batchEnableScripts(data);
+                break;
+                
+            case 'DISABLE_ALL_SCRIPTS':
+                result = await disableAllScripts(data);
                 break;
                 
             default:
@@ -2929,6 +2949,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'GET_MCP_STATUS') {
         // 实时检查 WebSocket 状态
         const actuallyConnected = ws && ws.readyState === WebSocket.OPEN && isConnected;
+        const isConnecting = ws && ws.readyState === WebSocket.CONNECTING;
         
         // 如果状态不一致，同步更新
         if (isConnected && !actuallyConnected) {
@@ -2936,13 +2957,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             handleDisconnect();
         }
         
+        // 判断是否连接失败（重连次数用尽且未连接）
+        const hasError = mcpEnabled && !actuallyConnected && !isConnecting && reconnectAttempts >= MAX_RECONNECT_ATTEMPTS;
+        
         sendResponse({ 
             connected: actuallyConnected, 
             enabled: mcpEnabled,
-            wsUrl: MCP_WS_URL,
+            connecting: isConnecting,
+            error: hasError,
+            wsUrl: getMCPWsUrl(),
+            port: mcpPort,
             wsState: ws ? ws.readyState : -1, // 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED
+            reconnectAttempts: reconnectAttempts,
+            maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS,
             lastPongTime: lastPongTime
         });
+        return true;
+    }
+    
+    // 重新连接MCP（端口变更时调用）
+    if (message.type === 'RECONNECT_MCP') {
+        console.log('[MCP Client] 收到重连请求');
+        
+        // 先断开现有连接
+        disconnectFromMCP();
+        
+        // 重新读取配置并连接
+        chrome.storage.local.get(['mcp_enabled', 'mcp_port'], (result) => {
+            mcpEnabled = result.mcp_enabled === true;
+            mcpPort = result.mcp_port || MCP_DEFAULT_PORT;
+            
+            console.log('[MCP Client] 重新连接，端口:', mcpPort);
+            
+            if (mcpEnabled) {
+                reconnectAttempts = 0; // 重置重连计数
+                connectToMCP();
+            }
+        });
+        
+        sendResponse({ success: true });
         return true;
     }
     
@@ -3361,6 +3414,143 @@ async function batchUpdateHeaders({ groupId, headers }) {
                     headersCount: data[groupId].length,
                     message: `请求头组 "${group.name}" 已更新，共 ${data[groupId].length} 个请求头`
                 });
+            });
+        });
+    });
+}
+
+// ============== 智能场景协调功能 ==============
+
+// 批量启用脚本
+async function batchEnableScripts({ scriptIds, enabled = true, autoRefresh = false }) {
+    const tab = await getActiveTab();
+    if (!tab || !tab.url) {
+        throw new Error('无法获取当前标签页');
+    }
+    
+    const hostname = new URL(tab.url).hostname;
+    
+    return new Promise((resolve, reject) => {
+        chrome.storage.local.get(['antidebug_mode', 'global_scripts', hostname], (result) => {
+            const mode = result.antidebug_mode || 'standard';
+            let currentScripts;
+            let storageKey;
+            
+            if (mode === 'global') {
+                currentScripts = result.global_scripts || [];
+                storageKey = 'global_scripts';
+            } else {
+                currentScripts = result[hostname] || [];
+                storageKey = hostname;
+            }
+            
+            const enabledBefore = currentScripts.length;
+            
+            if (enabled) {
+                // 添加脚本（去重）
+                for (const scriptId of scriptIds) {
+                    if (!currentScripts.includes(scriptId)) {
+                        currentScripts.push(scriptId);
+                    }
+                }
+            } else {
+                // 移除脚本
+                currentScripts = currentScripts.filter(id => !scriptIds.includes(id));
+            }
+            
+            chrome.storage.local.set({ [storageKey]: currentScripts }, () => {
+                // 通知background更新脚本注册
+                chrome.runtime.sendMessage({
+                    type: 'update_scripts_registration',
+                    hostname: mode === 'global' ? '*' : hostname,
+                    enabledScripts: currentScripts,
+                    isGlobalMode: mode === 'global'
+                });
+                
+                const result = {
+                    success: true,
+                    mode,
+                    hostname: mode === 'global' ? '*' : hostname,
+                    scriptIds,
+                    enabled,
+                    enabledBefore,
+                    enabledAfter: currentScripts.length,
+                    currentScripts,
+                    message: enabled 
+                        ? `已启用 ${scriptIds.length} 个脚本`
+                        : `已禁用 ${scriptIds.length} 个脚本`
+                };
+                
+                if (autoRefresh) {
+                    // 自动刷新页面
+                    chrome.tabs.reload(tab.id, { bypassCache: true }, () => {
+                        result.refreshed = true;
+                        result.message += '，页面已刷新';
+                        resolve(result);
+                    });
+                } else {
+                    result.refreshed = false;
+                    result.message += '，刷新页面后生效';
+                    resolve(result);
+                }
+            });
+        });
+    });
+}
+
+// 禁用所有脚本
+async function disableAllScripts({ autoRefresh = false } = {}) {
+    const tab = await getActiveTab();
+    if (!tab || !tab.url) {
+        throw new Error('无法获取当前标签页');
+    }
+    
+    const hostname = new URL(tab.url).hostname;
+    
+    return new Promise((resolve, reject) => {
+        chrome.storage.local.get(['antidebug_mode', 'global_scripts', hostname], (result) => {
+            const mode = result.antidebug_mode || 'standard';
+            let storageKey;
+            let previousScripts;
+            
+            if (mode === 'global') {
+                previousScripts = result.global_scripts || [];
+                storageKey = 'global_scripts';
+            } else {
+                previousScripts = result[hostname] || [];
+                storageKey = hostname;
+            }
+            
+            // 清空脚本列表
+            chrome.storage.local.set({ [storageKey]: [] }, () => {
+                // 通知background更新脚本注册
+                chrome.runtime.sendMessage({
+                    type: 'update_scripts_registration',
+                    hostname: mode === 'global' ? '*' : hostname,
+                    enabledScripts: [],
+                    isGlobalMode: mode === 'global'
+                });
+                
+                const resultData = {
+                    success: true,
+                    mode,
+                    hostname: mode === 'global' ? '*' : hostname,
+                    previousScripts,
+                    disabledCount: previousScripts.length,
+                    message: `已禁用 ${previousScripts.length} 个脚本`
+                };
+                
+                if (autoRefresh) {
+                    chrome.tabs.reload(tab.id, { bypassCache: true }, () => {
+                        resultData.refreshed = true;
+                        resultData.message += '，页面已刷新';
+                        resolve(resultData);
+                    });
+                } else {
+                    resultData.refreshed = false;
+                    resultData.message += '，刷新页面后生效';
+                    resolve(resultData);
+                }
             });
         });
     });

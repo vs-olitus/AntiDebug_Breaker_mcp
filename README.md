@@ -11,7 +11,7 @@
   <a href="#-功能特性">功能特性</a> •
   <a href="#-安装方法">安装方法</a> •
   <a href="#-使用说明">使用说明</a> •
-  <a href="#-mcp-集成">MCP 集成</a> •
+  <a href="#-mcp-提示词与案例">MCP 提示词</a> •
   <a href="#-致谢">致谢</a>
 </p>
 
@@ -31,8 +31,6 @@ AntiDebug Breaker MCP 是一款专为前端 JavaScript 逆向工程和渗透测�
 > 📢 **声明**：本项目基于 [0xsdeo](https://github.com/0xsdeo) 师傅的开源项目 **[AntiDebug_Breaker](https://github.com/0xsdeo/AntiDebug_Breaker)** 进行二次开发，增加了 MCP 集成功能。感谢原作者的优秀工作！🙏
 
 基于 [Hook_JS](https://github.com/AntSwordProject/Hook_JS) 库开发，提供强大的反调试绕过、API Hook、Vue 路由获取等功能。
-
-![界面预览](image/README/剪贴板%202026-01-26%20下午%209.18.44.png)
 
 ---
 
@@ -81,7 +79,7 @@ AntiDebug Breaker MCP 是一款专为前端 JavaScript 逆向工程和渗透测�
 
 针对 Vue.js 框架的专属功能，快速获取和分析路由信息。
 
-![剪贴板 2026-01-26 下午 10.01.16](/Users/vsolitus/Downloads/AntiDebug_Breaker_mcp-4.0.0/image/README/剪贴板 2026-01-26 下午 10.01.16.png)
+![10949](https://s1.galgame.fun/imgb/u55/20260126_6977796269aff.png)
 
 | 脚本名称 | 功能描述 |
 |---------|---------|
@@ -123,8 +121,6 @@ AntiDebug Breaker MCP 是一款专为前端 JavaScript 逆向工程和渗透测�
 
 🔗 支持 Model Context Protocol (MCP)，可通过 Cursor AI 直接控制浏览器。
 
-![MCP集成](image/README/6adde659f1f7ea76b06a5b7cbaaf9aef.png)
-
 **MCP 功能：**
 - 🔌 与 Cursor AI / Claude / Trae 等编辑器无缝集成
 - 🌍 全局操作模式：通过页面标题匹配操作任意标签页
@@ -134,17 +130,17 @@ AntiDebug Breaker MCP 是一款专为前端 JavaScript 逆向工程和渗透测�
 
 ## 📥 安装方法
 
-### 方式一：从源码安装
+根据您使用的 AI 编辑器，选择对应的安装教程：
 
-1. 下载或克隆本仓库到本地
-2. 打开 Chrome 浏览器，访问 `chrome://extensions/`
-3. 开启右上角的「开发者模式」
-4. 点击「加载已解压的扩展程序」
-5. 选择源码文件夹即可
+| 编辑器 | 教程链接 | 推荐指数 | 说明 |
+|--------|----------|:--------:|------|
+| **Cursor** | [📖 Cursor 安装教程](./cursor安装教程.md) | ⭐⭐⭐⭐⭐ | 模型选择很多 |
+| **Qoder** | [📖 Qoder 安装教程](./qoder安装教程.md) | ⭐⭐⭐⭐ | 轻量级，性价比高 |
+| **Trae** | [📖 Trae 安装教程](./trae安装教程.md) | ⭐⭐⭐⭐ | 字节跳动出品，国内免费可用 |
 
-### 方式二：从 Release 下载
-
-前往 [Releases](https://github.com/0xsdeo/AntiDebug_Breaker/releases) 页面下载最新版本。
+> 💡 **选择建议：** 追求功能完整选 Cursor，注重性价比选 Qoder，国内免费使用选 Trae
+>
+> 📦 **快速下载：** [Releases](https://github.com/vs-olitus/AntiDebug_Breaker_mcp/releases)
 
 ---
 
@@ -192,279 +188,31 @@ AntiDebug Breaker MCP 是一款专为前端 JavaScript 逆向工程和渗透测�
 
 ---
 
-## 🤖 MCP 集成
+## 🤖 MCP 提示词与案例
 
-AntiDebug Breaker 支持 MCP (Model Context Protocol)，可与 Cursor AI 等工具集成使用。
+### 💬 常用提示词
 
-### 📦 启动 MCP 服务器
+> 📝 **使用说明：** 将 `{网站title}` 替换为目标网站的实际标题
 
-```bash
-# 进入 MCP 服务器目录
-cd mcp-server
-
-# 安装依赖
-npm install
-
-# 启动服务器
-npm start
-```
-
-### ⚙️ 配置 Cursor
-
-<table>
-<tr>
-<td width="50%">
-**步骤 1：打开 MCP 配置**
-
-1. 打开 Cursor 设置
-2. 点击 **Tools** → **MCP**
-3. 点击 **New MCP Server**
-
-![剪贴板 2026-01-26 下午 9.39.38](/Users/vsolitus/Downloads/AntiDebug_Breaker_mcp-4.0.0/image/README/剪贴板 2026-01-26 下午 9.39.38.png)
-
-**步骤 2：添加配置**
-
-在打开的 `mcp.json` 文件中添加以下配置：
-
-```json
-{
-  "mcpServers": {
-    "AntiDebug_Breaker_mcp": {
-      "command": "node",
-      "args": ["/你的路径/AntiDebug_Breaker_mcp-4.0.0/mcp-server/dist/index.js"]
-    }
-  }
-}
-```
-
-> 📝 **注意**：请将 `/你的路径/` 替换为实际的插件安装路径
-
-**步骤 3：启用浏览器连接**
-
-<table>
-<tr>
-<td width="50%">
-
-1. 打开浏览器中的插件
-2. 点击 **启用 MCP** 按钮
-3. 右上角显示 **已连接** 即表示成功
-
-</td>
-<td width="50%">
-
-![剪贴板 2026-01-26 下午 10.04.51](/Users/vsolitus/Downloads/AntiDebug_Breaker_mcp-4.0.0/image/README/剪贴板 2026-01-26 下午 10.04.51.png)
-
-</td>
-</tr>
-</table>
-
-### 🛠️ MCP 工具列表
-
-| 工具类别 | 功能 |
-|---------|------|
-| **页面操作** | 导航、截图、表单填写、元素点击 |
-| **网络监控** | 获取请求记录、API 分析、Burp 格式导出 |
-| **存储操作** | Cookie、LocalStorage、SessionStorage |
-| **加密分析** | RSA/AES 加密捕获、密钥提取 |
-| **Vue 分析** | 路由扫描、数据提取 |
-| **敏感数据检测** | 身份证、手机号、银行卡等 |
-| **请求头管理** | 创建/删除/切换请求头组、添加/更新/删除请求头 |
-
-<details>
-<summary>📋 <b>请求头管理工具详情</b></summary>
-
-| 工具名 | 功能描述 |
-|--------|----------|
-| `get_headers_config` | 获取所有请求头组和请求头的完整配置 |
-| `create_header_group` | 创建新的请求头组 |
-| `delete_header_group` | 删除指定的请求头组 |
-| `switch_header_group` | 切换/启用指定的请求头组（传空禁用所有） |
-| `add_header` | 向指定组添加单个请求头 |
-| `update_header` | 更新请求头的名称、值或启用状态 |
-| `delete_header` | 删除指定的请求头 |
-| `toggle_header` | 启用/禁用单个请求头 |
-| `batch_update_headers` | 批量替换一个组的所有请求头 |
-| `quick_set_headers` | ⭐ 快速设置：创建组+添加请求头+立即启用 |
-
-</details>
-
-### 💡 常用提示词
-
-<details>
-<summary>🔍 <b>一键分析页面</b></summary>
+#### 🔍 一键分析页面
 
 ```
-帮我分析当前页面，检测反调试机制、前端框架、加密方式和认证机制
+请帮我调用 AntiDebug_Breaker_mcp 分析 {网站title} 页面，检测反调试机制、前端框架、加密方式和认证机制
 ```
 
-</details>
-
-<details>
-<summary>🛡️ <b>绕过反调试</b></summary>
+#### 🔐 加密算法逆向
 
 ```
-帮我检测并绕过当前页面的反调试机制
+请帮我调用 AntiDebug_Breaker_mcp 分析 {网站title} 
+输入内容"你好啊"后会触发 API 接口：
+https://xxxx.com/translate/key?mysticTime=xxx&token=xxx&sign=xxx
+帮我还原出 sign 的加密算法，并进行发包验证
 ```
 
-```
-当前网站有无限 debugger，帮我绕过
-```
-
-</details>
-
-<details>
-<summary>🌐 <b>Vue 路由扫描</b></summary>
+#### 🔥 综合渗透测试
 
 ```
-获取当前 Vue 网站的所有路由，并列出可能存在未授权访问的路由
-```
-
-```
-批量访问所有 Vue 路由，收集每个路由触发的 API 接口
-```
-
-```
-获取 Vue 路由列表，然后逐个访问检测哪些路由可以未授权访问
-```
-
-</details>
-
-<details>
-<summary>🔐 <b>加密分析</b></summary>
-
-```
-分析当前登录页面的密码加密方式，找到加密算法和密钥
-```
-
-```
-启用加密 Hook，然后用用户名 admin 密码 123456 测试登录，捕获加密前后的数据
-```
-
-```
-帮我 Hook CryptoJS，然后刷新页面，捕获所有加解密操作的 key 和 iv
-```
-
-</details>
-
-<details>
-<summary>📡 <b>API 监控与分析</b></summary>
-
-```
-监控当前页面的所有 API 请求，分析请求签名和加密参数
-```
-
-```
-获取最近的网络请求，以 Burp Suite 格式输出
-```
-
-```
-点击登录按钮并捕获登录请求的完整数据包
-```
-
-</details>
-
-<details>
-<summary>🚨 <b>敏感数据检测</b></summary>
-
-```
-扫描当前页面的 API 响应，检测是否存在身份证、手机号、银行卡等敏感数据泄露
-```
-
-```
-批量扫描 Vue 路由，检测每个页面是否存在敏感数据泄露
-```
-
-```
-启动敏感数据实时监控，操作页面时自动检测数据泄露
-```
-
-</details>
-
-<details>
-<summary>🔑 <b>认证与授权测试</b></summary>
-
-```
-分析当前页面的认证机制，提取 Cookie、Token 和 JWT 信息
-```
-
-```
-获取当前页面的所有 Cookie 和 localStorage 数据
-```
-
-```
-帮我分析这个 JWT token 的内容和过期时间
-```
-
-</details>
-
-<details>
-<summary>🤖 <b>自动化测试</b></summary>
-
-```
-自动填写登录表单（用户名 test，密码 123456），点击登录并捕获所有请求
-```
-
-```
-获取页面所有表单，分析输入框和提交按钮
-```
-
-```
-注入 WebSocket 监控，捕获所有 WS 消息
-```
-
-</details>
-
-<details>
-<summary>📊 <b>数据提取</b></summary>
-
-```
-提取当前 Vue 组件的 data 和 computed 数据
-```
-
-```
-提取页面表格数据并导出为结构化格式
-```
-
-```
-从 JS 文件中提取 RSA 公钥和私钥
-```
-
-</details>
-
-<details>
-<summary>📝 <b>请求头管理</b></summary>
-
-```
-获取当前所有请求头配置
-```
-
-```
-创建一个新的请求头组"测试环境"，添加 Authorization 和 X-Token 请求头
-```
-
-```
-快速设置请求头：创建"生产环境"组，添加 tenant-id: 1001 和 Authorization: Bearer xxx
-```
-
-```
-切换到"测试环境"请求头组
-```
-
-```
-禁用所有请求头
-```
-
-```
-向当前请求头组添加 X-Custom-Header: custom-value
-```
-
-</details>
-
-<details>
-<summary>🔥 <b>综合渗透测试</b></summary>
-
-```
-对当前网站进行完整的前端安全分析：
+请帮我调用 AntiDebug_Breaker_mcp 对 {网站title} 进行完整的前端安全分析：
 1. 检测并绕过反调试
 2. 获取所有 Vue 路由
 3. 批量访问路由收集 API
@@ -472,15 +220,21 @@ npm start
 5. 分析加密和认证机制
 ```
 
+#### 🛡️ 后台系统测试
+
 ```
-帮我测试这个后台系统的前端安全：
+请帮我调用 AntiDebug_Breaker_mcp 对 {网站title} 测试后台系统的前端安全：
 1. 获取所有路由
 2. 检测未授权访问
 3. 扫描敏感信息泄露
 4. 分析接口签名
 ```
 
-</details>
+---
+
+### 📚 实战案例
+
+> 🚧 **案例正在整理中，敬请期待...**
 
 ---
 
@@ -511,7 +265,7 @@ npm start
 
 - [0xsdeo](https://github.com/0xsdeo) - 原作者
 - [CC11001100](https://github.com/CC11001100)
-- [Dexter](https://github.com/mingheyan)
+- [Dexter](https://github.com/mingheyan)]
 - [d1sbb](https://github.com/d1sbb)
 - [Yosan](https://github.com/lyousan)
 

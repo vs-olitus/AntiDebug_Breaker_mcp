@@ -96,44 +96,69 @@ let pendingRequests = new Map<string, {
 }>();
 
 // ============== WebSocket 服务器 ==============
-const WS_PORT = 9527;
-const wss = new WebSocketServer({ port: WS_PORT });
+// 从环境变量读取端口配置，默认9527
+const WS_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : 9527;
+let wss: WebSocketServer | null = null;
+let currentPort = WS_PORT;
 
-console.error(`[MCP] WebSocket服务器启动在端口 ${WS_PORT}`);
+// 输出端口配置信息
+console.error(`[MCP] 配置端口: ${WS_PORT}${process.env.MCP_PORT ? ' (来自环境变量 MCP_PORT)' : ' (默认)'}`);
 
-wss.on("connection", (ws) => {
-  console.error("[MCP] 浏览器扩展已连接");
-  browserClient = ws;
-  browserState.connected = true;
+// 初始化WebSocket服务器
+async function initWebSocketServer() {
+  try {
+    wss = new WebSocketServer({ port: WS_PORT });
+    currentPort = WS_PORT;
+    
+    console.error(`[MCP] WebSocket服务器启动在端口 ${WS_PORT}`);
+    
+    wss.on("connection", (ws) => {
+      console.error("[MCP] 浏览器扩展已连接");
+      browserClient = ws;
+      browserState.connected = true;
 
-  ws.on("message", (data) => {
-    try {
-      const message = JSON.parse(data.toString());
-      
-      // 处理心跳消息
-      if (message.type === 'PING') {
-        ws.send(JSON.stringify({ type: 'PONG', timestamp: Date.now() }));
-        return;
+      ws.on("message", (data) => {
+        try {
+          const message = JSON.parse(data.toString());
+          
+          // 处理心跳消息
+          if (message.type === 'PING') {
+            ws.send(JSON.stringify({ type: 'PONG', timestamp: Date.now() }));
+            return;
+          }
+          
+          handleBrowserMessage(message);
+        } catch (e) {
+          console.error("[MCP] 解析消息失败:", e);
+        }
+      });
+
+      ws.on("close", () => {
+        console.error("[MCP] 浏览器扩展断开连接");
+        browserClient = null;
+        browserState.connected = false;
+      });
+
+      ws.on("error", (error) => {
+        console.error("[MCP] WebSocket错误:", error);
+        browserClient = null;
+        browserState.connected = false;
+      });
+    });
+    
+    wss.on("error", (error: any) => {
+      if (error.code === 'EADDRINUSE') {
+        console.error(`[MCP] ❌ 端口 ${currentPort} 被占用`);
+      } else {
+        console.error("[MCP] WebSocket服务器错误:", error);
       }
-      
-      handleBrowserMessage(message);
-    } catch (e) {
-      console.error("[MCP] 解析消息失败:", e);
-    }
-  });
-
-  ws.on("close", () => {
-    console.error("[MCP] 浏览器扩展断开连接");
-    browserClient = null;
-    browserState.connected = false;
-  });
-
-  ws.on("error", (error) => {
-    console.error("[MCP] WebSocket错误:", error);
-    browserClient = null;
-    browserState.connected = false;
-  });
-});
+    });
+    
+  } catch (error: any) {
+    console.error(`[MCP] ❌ WebSocket服务器启动失败: ${error.message}`);
+    console.error("[MCP] MCP服务器将继续运行，但无法与浏览器扩展通信");
+  }
+}
 
 // 处理来自浏览器的消息
 function handleBrowserMessage(message: any) {
@@ -238,10 +263,10 @@ server.tool(
         type: "text",
         text: JSON.stringify({
           connected: browserState.connected,
-          wsPort: WS_PORT,
+          wsPort: currentPort,
           message: browserState.connected 
             ? "浏览器扩展已连接，可以开始使用其他工具"
-            : "浏览器扩展未连接。请确保：\n1. Chrome扩展已加载\n2. 已在扩展设置中启用MCP连接\n3. 已打开目标网页"
+            : `浏览器扩展未连接。请确保：\n1. Chrome扩展已加载\n2. 已在扩展设置中启用MCP连接（端口: ${currentPort}）\n3. 已打开目标网页`
         }, null, 2)
       }]
     };
@@ -2597,6 +2622,896 @@ server.tool(
   }
 );
 
+// ============== 智能场景协调功能 ==============
+
+/**
+ * 场景配置：定义用户意图到脚本的映射关系
+ * 当用户描述他们的需求时，MCP可以自动启用相关脚本
+ */
+const SCENARIO_CONFIGS: Record<string, {
+  name: string;
+  description: string;
+  keywords: string[];
+  scripts: string[];
+  additionalActions?: string[];
+}> = {
+  // 加密解密分析场景
+  encryption_analysis: {
+    name: "加密解密分析",
+    description: "自动启用RSA和CryptoJS Hook脚本，用于分析页面的加密解密过程",
+    keywords: ["加密", "解密", "RSA", "AES", "CryptoJS", "密码", "encrypt", "decrypt", "password", "密文", "明文", "公钥", "私钥", "JSEncrypt"],
+    scripts: ["Hook_JSEncrypt", "Hook_CryptoJS", "hook_log"],
+    additionalActions: ["analyze_page_encryption"]
+  },
+  
+  // 反调试绕过场景
+  anti_debug_bypass: {
+    name: "反调试绕过",
+    description: "自动检测并启用反调试绕过脚本",
+    keywords: ["反调试", "debugger", "调试", "断点", "无限循环", "anti-debug", "绕过", "bypass", "卡住", "控制台"],
+    scripts: ["Bypass_Debugger", "hook_log", "hook_clear"],
+    additionalActions: ["detect_anti_debug"]
+  },
+  
+  // API请求分析场景
+  api_analysis: {
+    name: "API请求分析",
+    description: "启用XHR和Fetch Hook脚本，分析API请求",
+    keywords: ["API", "请求", "接口", "XHR", "fetch", "网络", "request", "response", "header", "签名", "sign"],
+    scripts: ["hook_xhr_open", "hook_xhr_setRequestHeader", "hook_fetch", "hook_log"],
+    additionalActions: ["analyze_api_signature"]
+  },
+  
+  // Cookie/Storage分析场景
+  storage_analysis: {
+    name: "存储分析",
+    description: "启用Cookie和Storage Hook脚本，分析数据存储",
+    keywords: ["cookie", "localStorage", "sessionStorage", "存储", "token", "session", "认证", "auth", "登录状态"],
+    scripts: ["Hook_cookie", "hook_localStorage_setItem", "hook_localStorage_getItem", "hook_sessionStorage_setItem", "hook_sessionStorage_getItem", "hook_log"],
+    additionalActions: ["analyze_authentication"]
+  },
+  
+  // Vue路由分析场景
+  vue_analysis: {
+    name: "Vue路由分析",
+    description: "启用Vue路由获取和守卫清除脚本",
+    keywords: ["vue", "路由", "router", "守卫", "跳转", "导航", "beforeEach", "permission", "权限"],
+    scripts: ["Get_Vue_0", "Get_Vue_1", "Clear_vue_Navigation_Guards", "detectorExec"],
+    additionalActions: ["get_vue_routes"]
+  },
+  
+  // 登录分析场景
+  login_analysis: {
+    name: "登录分析",
+    description: "综合分析登录页面：加密方式、API请求、认证机制",
+    keywords: ["登录", "login", "用户名", "密码", "password", "username", "表单", "form", "submit", "验证码"],
+    scripts: ["Hook_JSEncrypt", "Hook_CryptoJS", "hook_xhr_open", "hook_xhr_setRequestHeader", "Hook_cookie", "hook_log"],
+    additionalActions: ["get_page_forms", "analyze_page_encryption"]
+  },
+  
+  // 完整分析场景
+  full_analysis: {
+    name: "完整页面分析",
+    description: "启用所有必要的Hook脚本进行完整分析",
+    keywords: ["完整分析", "全面分析", "full", "complete", "all", "全部"],
+    scripts: ["Hook_JSEncrypt", "Hook_CryptoJS", "hook_xhr_open", "hook_xhr_setRequestHeader", "hook_fetch", "Hook_cookie", "hook_log", "Bypass_Debugger"],
+    additionalActions: ["full_page_analysis"]
+  },
+  
+  // JSON数据分析场景
+  json_analysis: {
+    name: "JSON数据分析",
+    description: "Hook JSON.parse和JSON.stringify，分析数据流",
+    keywords: ["json", "数据", "parse", "stringify", "序列化", "反序列化"],
+    scripts: ["hook_json_parse", "hook_json_stringify", "hook_log"],
+    additionalActions: []
+  },
+  
+  // 页面跳转定位场景
+  redirect_analysis: {
+    name: "跳转分析",
+    description: "定位页面跳转代码，防止自动跳转",
+    keywords: ["跳转", "redirect", "location", "href", "返回", "关闭", "close", "history"],
+    scripts: ["location_href", "hook_close", "hook_history", "hook_log"],
+    additionalActions: []
+  },
+  
+  // 敏感数据检测场景
+  sensitive_data: {
+    name: "敏感数据检测",
+    description: "检测API响应中的敏感数据泄露",
+    keywords: ["敏感", "泄露", "身份证", "手机号", "银行卡", "隐私", "个人信息", "sensitive", "leak"],
+    scripts: ["hook_xhr_open", "hook_fetch", "hook_log"],
+    additionalActions: ["scan_sensitive_data"]
+  },
+  
+  // 时间戳/随机数分析场景
+  random_analysis: {
+    name: "随机数/时间戳分析",
+    description: "固定随机数和时间戳，用于签名分析",
+    keywords: ["random", "随机", "时间戳", "timestamp", "Date.now", "Math.random", "签名", "sign"],
+    scripts: ["hook_random", "Hook_Date_now", "hook_log"],
+    additionalActions: []
+  },
+  
+  // 未授权测试场景（需要先检测Vue）
+  unauthorized_test: {
+    name: "未授权测试",
+    description: "测试未授权访问漏洞：大屏未授权、路由未授权等（仅Vue站点可用）",
+    keywords: ["未授权", "unauthorized", "大屏", "测试未授权", "找未授权", "权限", "访问控制", "越权"],
+    scripts: ["Get_Vue_0", "Get_Vue_1", "Clear_vue_Navigation_Guards", "hook_log"],
+    additionalActions: ["batch_scan_routes", "batch_scan_sensitive_routes"]
+  }
+};
+
+// 67. 智能场景启用工具
+server.tool(
+  "smart_enable_scenario",
+  "根据用户意图智能启用相关脚本组合。例如：'加密分析'会自动启用Hook JSEncrypt RSA和Hook CryptoJS。对于'未授权测试'会先检测Vue站点。",
+  {
+    intent: z.string().describe("用户意图描述，如：'加密解密分析'、'反调试绕过'、'未授权测试'、'API请求分析'等"),
+    autoRefresh: z.boolean().optional().describe("启用脚本后是否自动刷新页面，默认true")
+  },
+  async ({ intent, autoRefresh = true }) => {
+    try {
+      // 匹配最合适的场景
+      let bestMatch: { scenarioId: string; score: number } | null = null;
+      const intentLower = intent.toLowerCase();
+      
+      for (const [scenarioId, config] of Object.entries(SCENARIO_CONFIGS)) {
+        let score = 0;
+        for (const keyword of config.keywords) {
+          if (intentLower.includes(keyword.toLowerCase())) {
+            score += keyword.length; // 关键词越长匹配越精确
+          }
+        }
+        if (score > 0 && (!bestMatch || score > bestMatch.score)) {
+          bestMatch = { scenarioId, score };
+        }
+      }
+      
+      if (!bestMatch) {
+        // 没有匹配，返回可用场景列表
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              success: false,
+              message: `未能识别意图 "${intent}"，请尝试以下场景：`,
+              availableScenarios: Object.entries(SCENARIO_CONFIGS).map(([id, config]) => ({
+                id,
+                name: config.name,
+                description: config.description,
+                keywords: config.keywords.slice(0, 5).join(", ") + "..."
+              }))
+            }, null, 2)
+          }]
+        };
+      }
+      
+      const scenario = SCENARIO_CONFIGS[bestMatch.scenarioId];
+      
+      // 🔥 特殊处理：未授权测试需要先检测Vue站点
+      if (bestMatch.scenarioId === 'unauthorized_test' || bestMatch.scenarioId === 'vue_analysis') {
+        // 先检测是否为Vue站点
+        let isVueSite = false;
+        try {
+          const vueData = await sendToBrowser("EXTRACT_VUE_DATA", {});
+          if (vueData && !vueData.error && (vueData.version || vueData.hasVue)) {
+            isVueSite = true;
+          }
+        } catch (e) {
+          // 检测失败
+        }
+        
+        if (!isVueSite) {
+          // 不是Vue站点，不能进行Vue相关操作
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                success: false,
+                matchedScenario: {
+                  id: bestMatch.scenarioId,
+                  name: scenario.name
+                },
+                isVueSite: false,
+                message: `⚠️ 当前站点未检测到Vue框架，无法执行 "${scenario.name}"`,
+                reason: "该功能需要Vue Router支持，当前站点不是Vue应用",
+                alternativeActions: {
+                  canDo: [
+                    { tool: "quick_encryption_analysis", description: "加密解密分析 - 分析RSA/AES等加密" },
+                    { tool: "quick_api_analysis", description: "API请求分析 - Hook XHR/Fetch请求" },
+                    { tool: "quick_anti_debug_bypass", description: "反调试绕过 - 绕过debugger等" },
+                    { tool: "scan_sensitive_data", description: "敏感数据扫描 - 检测API响应中的敏感信息" },
+                    { tool: "analyze_authentication", description: "认证分析 - 分析token/cookie等" }
+                  ],
+                  cannotDo: [
+                    "Vue路由未授权测试",
+                    "大屏页面路由遍历", 
+                    "路由守卫清除",
+                    "Vue数据提取"
+                  ]
+                },
+                suggestion: "建议使用 quick_encryption_analysis 或 quick_api_analysis 进行通用分析"
+              }, null, 2)
+            }]
+          };
+        }
+        
+        // 是Vue站点，继续执行
+      }
+      
+      // 批量启用脚本
+      const results = await sendToBrowser("BATCH_ENABLE_SCRIPTS", { 
+        scriptIds: scenario.scripts,
+        autoRefresh
+      });
+      
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            success: true,
+            matchedScenario: {
+              id: bestMatch.scenarioId,
+              name: scenario.name,
+              description: scenario.description
+            },
+            enabledScripts: scenario.scripts,
+            autoRefresh,
+            message: `已启用 "${scenario.name}" 场景，共 ${scenario.scripts.length} 个脚本`,
+            nextSteps: scenario.additionalActions?.length 
+              ? `建议接下来调用: ${scenario.additionalActions.join(", ")}`
+              : "脚本已就绪，刷新页面后生效",
+            ...results
+          }, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `智能启用失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// 68. 获取可用场景列表
+server.tool(
+  "list_scenarios",
+  "获取所有可用的智能场景配置列表",
+  {},
+  async () => {
+    const scenarios = Object.entries(SCENARIO_CONFIGS).map(([id, config]) => ({
+      id,
+      name: config.name,
+      description: config.description,
+      scripts: config.scripts,
+      keywords: config.keywords
+    }));
+    
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          totalScenarios: scenarios.length,
+          scenarios,
+          usage: "使用 smart_enable_scenario 工具并传入意图描述来自动启用相关脚本"
+        }, null, 2)
+      }]
+    };
+  }
+);
+
+// 69. 快捷工具：加密分析（一键启用加密相关Hook + 分析）
+server.tool(
+  "quick_encryption_analysis",
+  "一键启用加密分析：自动开启 Hook JSEncrypt RSA 和 Hook CryptoJS，然后分析页面加密方式",
+  {
+    autoRefresh: z.boolean().optional().describe("是否自动刷新页面，默认true")
+  },
+  async ({ autoRefresh = true }) => {
+    try {
+      const results: any = { steps: [] };
+      
+      // 步骤1: 启用加密Hook脚本
+      results.steps.push({ step: 1, action: "启用加密Hook脚本" });
+      const enableResult = await sendToBrowser("BATCH_ENABLE_SCRIPTS", {
+        scriptIds: ["Hook_JSEncrypt", "Hook_CryptoJS", "hook_log"],
+        autoRefresh
+      });
+      results.scriptsEnabled = enableResult;
+      
+      if (autoRefresh) {
+        // 等待页面刷新完成
+        results.steps.push({ step: 2, action: "等待页面刷新" });
+        await new Promise(r => setTimeout(r, 2000));
+      }
+      
+      // 步骤3: 分析页面加密
+      results.steps.push({ step: 3, action: "分析页面加密方式" });
+      try {
+        results.pageAnalysis = await sendToBrowser("ANALYZE_PAGE_ENCRYPTION", {});
+      } catch (e) {
+        results.pageAnalysis = { error: "分析失败，请手动调用 analyze_page_encryption" };
+      }
+      
+      results.summary = {
+        enabled: ["Hook_JSEncrypt (RSA加密Hook)", "Hook_CryptoJS (对称加密Hook)", "hook_log (控制台保护)"],
+        message: "加密分析已就绪，所有加密操作将在控制台打印",
+        tips: [
+          "刷新页面后脚本生效",
+          "在控制台中可以看到加密前的明文和加密后的密文",
+          "如果使用JSEncrypt，还会捕获公钥",
+          "使用 get_captured_encryption 获取捕获的加密数据"
+        ]
+      };
+      
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(results, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `加密分析启用失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// 70. 快捷工具：反调试绕过（一键检测 + 启用绕过脚本）
+server.tool(
+  "quick_anti_debug_bypass",
+  "一键反调试绕过：自动检测页面反调试机制并启用相应的绕过脚本",
+  {
+    autoRefresh: z.boolean().optional().describe("是否自动刷新页面，默认true")
+  },
+  async ({ autoRefresh = true }) => {
+    try {
+      const results: any = { steps: [] };
+      
+      // 步骤1: 先启用基础反调试脚本
+      results.steps.push({ step: 1, action: "启用基础反调试脚本" });
+      await sendToBrowser("BATCH_ENABLE_SCRIPTS", {
+        scriptIds: ["Bypass_Debugger", "hook_log", "hook_clear"],
+        autoRefresh: false
+      });
+      
+      // 步骤2: 检测页面反调试机制
+      results.steps.push({ step: 2, action: "检测反调试机制" });
+      try {
+        results.detection = await sendToBrowser("DETECT_ANTI_DEBUG", {});
+        
+        // 步骤3: 根据检测结果启用额外脚本
+        if (results.detection.recommendations && results.detection.recommendations.length > 0) {
+          results.steps.push({ step: 3, action: "启用推荐脚本" });
+          await sendToBrowser("BATCH_ENABLE_SCRIPTS", {
+            scriptIds: results.detection.recommendations,
+            autoRefresh: false
+          });
+        }
+      } catch (e) {
+        results.detection = { error: "检测失败" };
+      }
+      
+      if (autoRefresh) {
+        results.steps.push({ step: 4, action: "刷新页面" });
+        await sendToBrowser("REFRESH_PAGE", { hardRefresh: true });
+      }
+      
+      results.summary = {
+        baseScriptsEnabled: ["Bypass_Debugger", "hook_log", "hook_clear"],
+        additionalScripts: results.detection?.recommendations || [],
+        message: "反调试绕过已启用",
+        tips: [
+          "Bypass_Debugger: 绕过无限debugger",
+          "hook_log: 防止控制台被清空",
+          "hook_clear: 禁止清空控制台"
+        ]
+      };
+      
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(results, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `反调试绕过失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// 71. 快捷工具：API分析（一键启用API Hook + 分析）
+server.tool(
+  "quick_api_analysis",
+  "一键API分析：启用XHR/Fetch Hook脚本，捕获并分析API请求",
+  {
+    autoRefresh: z.boolean().optional().describe("是否自动刷新页面，默认true")
+  },
+  async ({ autoRefresh = true }) => {
+    try {
+      const results: any = { steps: [] };
+      
+      // 步骤1: 启用API Hook脚本
+      results.steps.push({ step: 1, action: "启用API Hook脚本" });
+      await sendToBrowser("BATCH_ENABLE_SCRIPTS", {
+        scriptIds: ["hook_xhr_open", "hook_xhr_setRequestHeader", "hook_fetch", "hook_log"],
+        autoRefresh
+      });
+      
+      if (autoRefresh) {
+        results.steps.push({ step: 2, action: "等待页面刷新" });
+        await new Promise(r => setTimeout(r, 2000));
+      }
+      
+      // 步骤3: 获取已有的网络请求
+      results.steps.push({ step: 3, action: "获取网络请求" });
+      try {
+        results.requests = await sendToBrowser("GET_NETWORK_REQUESTS", { limit: 20 });
+      } catch (e) {
+        results.requests = [];
+      }
+      
+      results.summary = {
+        enabled: ["hook_xhr_open", "hook_xhr_setRequestHeader", "hook_fetch", "hook_log"],
+        message: "API分析已就绪，所有XHR和Fetch请求将在控制台打印",
+        tips: [
+          "hook_xhr_open: 捕获XHR请求URL和方法",
+          "hook_xhr_setRequestHeader: 捕获请求头设置",
+          "hook_fetch: 捕获Fetch API请求",
+          "使用 get_network_requests 获取所有捕获的请求"
+        ]
+      };
+      
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(results, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `API分析启用失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// 72. 快捷工具：Vue分析（一键获取路由 + 清除守卫）
+server.tool(
+  "quick_vue_analysis",
+  "一键Vue分析：启用路由获取脚本，获取路由信息并可选择清除路由守卫",
+  {
+    clearGuards: z.boolean().optional().describe("是否同时清除路由守卫，默认false"),
+    autoRefresh: z.boolean().optional().describe("是否自动刷新页面，默认true")
+  },
+  async ({ clearGuards = false, autoRefresh = true }) => {
+    try {
+      const results: any = { steps: [] };
+      
+      // 步骤1: 启用Vue脚本
+      const scripts = ["Get_Vue_0", "detectorExec"];
+      if (clearGuards) {
+        scripts.push("Get_Vue_1", "Clear_vue_Navigation_Guards");
+      }
+      
+      results.steps.push({ step: 1, action: "启用Vue分析脚本" });
+      await sendToBrowser("BATCH_ENABLE_SCRIPTS", {
+        scriptIds: scripts,
+        autoRefresh
+      });
+      
+      if (autoRefresh) {
+        results.steps.push({ step: 2, action: "等待页面刷新" });
+        await new Promise(r => setTimeout(r, 2000));
+      }
+      
+      // 步骤3: 获取Vue路由数据
+      results.steps.push({ step: 3, action: "获取Vue路由" });
+      try {
+        results.vueData = await sendToBrowser("GET_VUE_ROUTER_DATA", {});
+      } catch (e) {
+        results.vueData = { error: "获取失败，可能页面未使用Vue Router" };
+      }
+      
+      results.summary = {
+        enabled: scripts,
+        guardsCleared: clearGuards,
+        message: clearGuards ? "Vue路由分析已就绪，路由守卫已清除" : "Vue路由分析已就绪",
+        tips: [
+          "Get_Vue_0: 获取已加载的路由",
+          "detectorExec: 激活Vue Devtools",
+          clearGuards ? "已清除路由守卫，可自由访问各页面" : "如需清除路由守卫，设置 clearGuards: true"
+        ]
+      };
+      
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(results, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `Vue分析启用失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// 73. 智能未授权测试（自动检测Vue + 执行未授权测试）
+server.tool(
+  "smart_unauthorized_test",
+  "智能未授权测试：先检测是否为Vue站点，如果是则进行大屏未授权测试和Vue路由未授权测试；如果不是Vue站点，则提示只能进行通用分析（如加密解密）",
+  {
+    scanSensitiveData: z.boolean().optional().describe("是否同时扫描敏感数据泄露，默认true"),
+    waitTime: z.number().optional().describe("每个路由等待时间(毫秒)，默认2000")
+  },
+  async ({ scanSensitiveData = true, waitTime = 2000 }) => {
+    try {
+      const results: any = { 
+        timestamp: new Date().toISOString(),
+        steps: [],
+        isVueSite: false,
+        canTestUnauthorized: false
+      };
+      
+      // 步骤1: 获取页面信息
+      results.steps.push({ step: 1, action: "获取页面信息" });
+      let pageInfo;
+      try {
+        pageInfo = await sendToBrowser("GET_PAGE_INFO", {});
+        results.pageInfo = pageInfo;
+      } catch (e) {
+        throw new Error("无法获取页面信息，请确保浏览器扩展已连接");
+      }
+      
+      // 步骤2: 检测是否为Vue站点
+      results.steps.push({ step: 2, action: "检测Vue框架" });
+      let vueDetection;
+      try {
+        vueDetection = await sendToBrowser("EXTRACT_VUE_DATA", {});
+        results.vueDetection = vueDetection;
+        
+        // 判断是否为Vue站点
+        if (vueDetection && !vueDetection.error && (vueDetection.version || vueDetection.hasVue)) {
+          results.isVueSite = true;
+          results.vueVersion = vueDetection.version;
+        }
+      } catch (e) {
+        results.vueDetection = { error: "检测失败" };
+      }
+      
+      // 如果不是Vue站点
+      if (!results.isVueSite) {
+        results.canTestUnauthorized = false;
+        results.message = "⚠️ 当前站点未检测到Vue Router，无法进行Vue路由未授权测试";
+        results.availableActions = {
+          canDo: [
+            "加密解密分析 (quick_encryption_analysis)",
+            "API请求分析 (quick_api_analysis)",
+            "反调试绕过 (quick_anti_debug_bypass)",
+            "敏感数据扫描 (scan_sensitive_data)",
+            "认证机制分析 (analyze_authentication)"
+          ],
+          cannotDo: [
+            "Vue路由未授权测试",
+            "大屏页面路由遍历",
+            "路由守卫清除"
+          ]
+        };
+        results.suggestion = "该站点不是Vue应用，建议使用 quick_encryption_analysis 或 quick_api_analysis 进行通用分析";
+        
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify(results, null, 2)
+          }]
+        };
+      }
+      
+      // 是Vue站点，开始未授权测试
+      results.canTestUnauthorized = true;
+      results.message = "✅ 检测到Vue站点，开始未授权测试";
+      
+      // 步骤3: 启用Vue相关脚本
+      results.steps.push({ step: 3, action: "启用Vue路由分析脚本" });
+      await sendToBrowser("BATCH_ENABLE_SCRIPTS", {
+        scriptIds: ["Get_Vue_0", "Get_Vue_1", "Clear_vue_Navigation_Guards", "hook_log"],
+        autoRefresh: true
+      });
+      
+      // 等待页面刷新
+      results.steps.push({ step: 4, action: "等待页面刷新" });
+      await new Promise(r => setTimeout(r, 2500));
+      
+      // 步骤5: 获取Vue路由
+      results.steps.push({ step: 5, action: "获取Vue路由列表" });
+      let vueRoutes;
+      try {
+        vueRoutes = await sendToBrowser("GET_VUE_ROUTER_DATA", {});
+        results.vueRoutes = vueRoutes;
+      } catch (e) {
+        results.vueRoutes = { error: "获取路由失败" };
+      }
+      
+      // 提取路由路径
+      const routePaths: string[] = [];
+      if (vueRoutes && vueRoutes.routes && Array.isArray(vueRoutes.routes)) {
+        for (const route of vueRoutes.routes) {
+          if (route.path && route.path !== '*' && route.path !== '/:pathMatch(.*)*') {
+            routePaths.push(route.path);
+            // 也添加子路由
+            if (route.children && Array.isArray(route.children)) {
+              for (const child of route.children) {
+                if (child.path) {
+                  const fullPath = route.path === '/' 
+                    ? '/' + child.path 
+                    : route.path + '/' + child.path;
+                  routePaths.push(fullPath.replace(/\/+/g, '/'));
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      results.extractedRoutes = routePaths;
+      results.totalRoutes = routePaths.length;
+      
+      if (routePaths.length === 0) {
+        results.warning = "未能获取到路由列表，可能需要手动刷新页面后重试";
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify(results, null, 2)
+          }]
+        };
+      }
+      
+      // 步骤6: 识别可能的大屏/敏感路由
+      results.steps.push({ step: 6, action: "识别潜在敏感路由" });
+      const sensitiveKeywords = ['dashboard', 'admin', 'screen', 'big', 'large', 'monitor', 'data', 'report', 'chart', 'panel', 'manage', 'system', 'user', 'config', 'setting', '大屏', '监控', '管理', '统计', '报表'];
+      
+      const potentialSensitiveRoutes = routePaths.filter(path => {
+        const pathLower = path.toLowerCase();
+        return sensitiveKeywords.some(keyword => pathLower.includes(keyword));
+      });
+      
+      results.potentialSensitiveRoutes = potentialSensitiveRoutes;
+      results.sensitiveRoutesCount = potentialSensitiveRoutes.length;
+      
+      // 步骤7: 如果需要扫描敏感数据
+      if (scanSensitiveData && potentialSensitiveRoutes.length > 0) {
+        results.steps.push({ step: 7, action: "扫描敏感路由中的数据泄露" });
+        
+        // 限制扫描数量，避免太慢
+        const routesToScan = potentialSensitiveRoutes.slice(0, 10);
+        
+        try {
+          const scanResults: any[] = [];
+          for (const route of routesToScan) {
+            try {
+              // 导航到路由
+              await sendToBrowser("NAVIGATE_TO", { url: route });
+              await new Promise(r => setTimeout(r, waitTime));
+              
+              // 获取当前页面内容
+              const pageContent = await sendToBrowser("GET_PAGE_CONTENT", {});
+              
+              scanResults.push({
+                route,
+                accessible: true,
+                contentLength: pageContent?.length || 0,
+                hasContent: (pageContent?.length || 0) > 100
+              });
+            } catch (e: any) {
+              scanResults.push({
+                route,
+                accessible: false,
+                error: e.message
+              });
+            }
+          }
+          
+          results.routeScanResults = scanResults;
+          results.accessibleRoutes = scanResults.filter(r => r.accessible && r.hasContent);
+          results.accessibleCount = results.accessibleRoutes.length;
+          
+        } catch (e: any) {
+          results.scanError = e.message;
+        }
+      }
+      
+      // 生成测试报告
+      results.summary = {
+        isVueSite: true,
+        vueVersion: results.vueVersion || "unknown",
+        totalRoutes: routePaths.length,
+        sensitiveRoutes: potentialSensitiveRoutes.length,
+        accessibleWithoutAuth: results.accessibleCount || 0,
+        riskLevel: (results.accessibleCount || 0) > 0 ? "🔴 高风险 - 存在未授权访问" : "🟢 暂未发现明显未授权"
+      };
+      
+      results.recommendations = [
+        "1. 检查上述可访问的路由是否应该有权限控制",
+        "2. 使用 batch_scan_sensitive_routes 进行更详细的敏感数据扫描",
+        "3. 对大屏类路由进行手动验证是否可未授权访问",
+        "4. 检查路由守卫是否正确配置"
+      ];
+      
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(results, null, 2)
+        }]
+      };
+      
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `未授权测试失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// 74. 检测站点类型（Vue/React/其他）
+server.tool(
+  "detect_site_framework",
+  "检测当前站点使用的前端框架（Vue、React等），用于判断可以使用哪些功能",
+  {},
+  async () => {
+    try {
+      const results: any = {
+        frameworks: {
+          vue: false,
+          react: false,
+          angular: false,
+          jquery: false
+        },
+        vueVersion: null,
+        reactVersion: null,
+        hasRouter: false,
+        availableFeatures: []
+      };
+      
+      // 检测Vue
+      try {
+        const vueData = await sendToBrowser("EXTRACT_VUE_DATA", {});
+        if (vueData && !vueData.error && (vueData.version || vueData.hasVue)) {
+          results.frameworks.vue = true;
+          results.vueVersion = vueData.version;
+          if (vueData.routes || vueData.router) {
+            results.hasRouter = true;
+          }
+        }
+      } catch (e) {}
+      
+      // 检测React
+      try {
+        const reactData = await sendToBrowser("EXTRACT_REACT_DATA", {});
+        if (reactData && !reactData.error && (reactData.version || reactData.hasReact)) {
+          results.frameworks.react = true;
+          results.reactVersion = reactData.version;
+        }
+      } catch (e) {}
+      
+      // 根据检测结果设置可用功能
+      if (results.frameworks.vue && results.hasRouter) {
+        results.availableFeatures = [
+          "✅ Vue路由未授权测试 (smart_unauthorized_test)",
+          "✅ Vue路由分析 (quick_vue_analysis)",
+          "✅ 路由守卫清除",
+          "✅ 大屏页面扫描",
+          "✅ 加密解密分析",
+          "✅ API请求分析",
+          "✅ 敏感数据检测"
+        ];
+      } else if (results.frameworks.vue) {
+        results.availableFeatures = [
+          "⚠️ Vue站点但无Router，功能受限",
+          "✅ 加密解密分析",
+          "✅ API请求分析",
+          "✅ 敏感数据检测"
+        ];
+      } else {
+        results.availableFeatures = [
+          "❌ 非Vue站点，Vue相关功能不可用",
+          "✅ 加密解密分析 (quick_encryption_analysis)",
+          "✅ API请求分析 (quick_api_analysis)",
+          "✅ 反调试绕过 (quick_anti_debug_bypass)",
+          "✅ 敏感数据检测 (scan_sensitive_data)"
+        ];
+      }
+      
+      results.summary = results.frameworks.vue 
+        ? `Vue ${results.vueVersion || ''} 站点${results.hasRouter ? '（有Router）' : '（无Router）'}`
+        : results.frameworks.react 
+          ? `React ${results.reactVersion || ''} 站点`
+          : "非Vue/React站点";
+      
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(results, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `检测失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// 75. 批量启用脚本
+server.tool(
+  "batch_enable_scripts",
+  "批量启用或禁用多个脚本",
+  {
+    scriptIds: z.array(z.string()).describe("要启用的脚本ID列表"),
+    enabled: z.boolean().optional().describe("是否启用，默认true"),
+    autoRefresh: z.boolean().optional().describe("是否自动刷新页面，默认false")
+  },
+  async ({ scriptIds, enabled = true, autoRefresh = false }) => {
+    try {
+      const result = await sendToBrowser("BATCH_ENABLE_SCRIPTS", { 
+        scriptIds, 
+        enabled,
+        autoRefresh 
+      });
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(result, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `批量操作失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// 74. 禁用所有脚本
+server.tool(
+  "disable_all_scripts",
+  "禁用当前页面的所有已启用脚本",
+  {
+    autoRefresh: z.boolean().optional().describe("是否自动刷新页面，默认false")
+  },
+  async ({ autoRefresh = false }) => {
+    try {
+      const result = await sendToBrowser("DISABLE_ALL_SCRIPTS", { autoRefresh });
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(result, null, 2)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `禁用失败: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
 // ============== 资源定义 ==============
 
 // 提供当前浏览器状态作为资源
@@ -2616,10 +3531,14 @@ server.resource(
 
 // ============== 启动服务器 ==============
 async function main() {
+  // 先初始化WebSocket服务器
+  await initWebSocketServer();
+  
+  // 启动MCP服务器
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("[MCP] AntiDebug Breaker MCP服务器已启动");
-  console.error("[MCP] 等待浏览器扩展连接到 ws://localhost:" + WS_PORT);
+  console.error("[MCP] 等待浏览器扩展连接到 ws://localhost:" + currentPort);
 }
 
 main().catch((error) => {

@@ -171,9 +171,25 @@ body {
     animation: pulse 2s infinite;
 }
 
+.mcp-indicator-dot.error {
+    background: var(--error);
+    box-shadow: 0 0 8px var(--error);
+}
+
+.mcp-indicator-dot.connecting {
+    background: var(--warning);
+    box-shadow: 0 0 8px var(--warning);
+    animation: blink 1s infinite;
+}
+
 @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.6; }
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
 }
 
 /* 侧边栏底部 */
@@ -1648,9 +1664,11 @@ input:checked + .slider::before {
     display: flex;
     flex-direction: column;
     gap: 16px;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
     flex: 1;
     min-height: 0;
+    padding-right: 4px;
 }
 
 .mcp-section {
@@ -1661,6 +1679,7 @@ input:checked + .slider::before {
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 16px;
+    flex-shrink: 0;
 }
 
 .mcp-header {
@@ -1810,6 +1829,84 @@ input:checked + .slider::before {
 
 .mcp-instructions li {
     margin-bottom: 4px;
+}
+
+/* MCP端口输入框 */
+.mcp-port-input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mcp-port-input {
+    width: 80px;
+    padding: 6px 10px;
+    font-size: 13px;
+    font-family: 'Monaco', 'Menlo', monospace;
+    color: var(--text-primary);
+    background: var(--bg-input);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    text-align: center;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.mcp-port-input:focus {
+    border-color: var(--accent);
+}
+
+.mcp-port-input::-webkit-inner-spin-button,
+.mcp-port-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.mcp-port-save-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm);
+    color: var(--accent);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.mcp-port-save-btn:hover {
+    background: var(--accent);
+    color: var(--bg-dark);
+}
+
+/* MCP配置示例 */
+.mcp-config-example {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.mcp-config-example h5 {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.mcp-config-code {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    font-size: 11px;
+    font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+    color: var(--accent);
+    line-height: 1.6;
+    overflow-x: auto;
+    white-space: pre;
 }
 
 /* ========== 无结果提示 ========== */
