@@ -13,7 +13,7 @@
   <a href="#-使用说明">使用说明</a> •
   <a href="#-mcp-提示词与案例">MCP 提示词</a> •
   <a href="#-致谢">致谢</a>
-  <a>[![MCP Badge](https://lobehub.com/badge/mcp/0xsdeo-antidebug_breaker_mcp)](https://lobehub.com/mcp/0xsdeo-antidebug_breaker_mcp)</a>
+[![MCP Badge](https://lobehub.com/badge/mcp/0xsdeo-antidebug_breaker_mcp)](https://lobehub.com/mcp/0xsdeo-antidebug_breaker_mcp)
 </p>
 
 <p align="center">
