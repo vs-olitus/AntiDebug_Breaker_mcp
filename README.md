@@ -23,7 +23,7 @@
 </p>
 
 ---
-
+[![MCP Badge](https://lobehub.com/badge/mcp/0xsdeo-antidebug_breaker_mcp)](https://lobehub.com/mcp/0xsdeo-antidebug_breaker_mcp)
 ## 📖 简介
 
 AntiDebug Breaker MCP 是一款专为前端 JavaScript 逆向工程和渗透测试设计的 Chrome 浏览器扩展。
